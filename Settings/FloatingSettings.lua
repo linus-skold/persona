@@ -519,14 +519,143 @@ local function BuildSlots()
     tabPanels["slots"].child:SetHeight(math.abs(y) + 20)
 end
 
-local statsFrameCache = {}  -- tracks frames built by BuildStats for clean rebuild
+-- ── Stats tab state ──────────────────────────────────────────
+local statsFrameCache = {}   -- frames/regions to hide on rebuild
+local rowMeta         = {}   -- [catTitle] = {{id,label,frame}, ...} for hit-testing
+local BuildStats             -- forward declaration (referenced by drag widgets)
 
-local function BuildStats()
-    -- Hide frames from any previous build
+-- ── Drag-to-reorder widgets (created once, reused) ────────────
+local dragGhost, dragInsert, dropCatcher, dragTracker
+local dragState   = { active=false }
+local FinalizeDrop  -- set by InitDragWidgets, used by row OnMouseUp
+
+local function InitDragWidgets()
+    if dragGhost then return end
+
+    -- Floating label that follows the cursor
+    dragGhost = CreateFrame("Frame", nil, UIParent)
+    dragGhost:SetFrameStrata("TOOLTIP")
+    dragGhost:SetSize(220, ROW_H)
+    dragGhost:Hide()
+    local gb = dragGhost:CreateTexture(nil, "BACKGROUND")
+    gb:SetAllPoints(); gb:SetColorTexture(0.10, 0.07, 0.20, 0.92)
+    dragGhost.lbl = dragGhost:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    dragGhost.lbl:SetPoint("LEFT", dragGhost, "LEFT", 6, 0)
+    dragGhost.lbl:SetTextColor(1, 0.9, 0.4)
+
+    -- Yellow insert-bar shown between rows
+    dragInsert = CreateFrame("Frame", nil, UIParent)
+    dragInsert:SetFrameStrata("TOOLTIP")
+    dragInsert:SetHeight(2)
+    dragInsert:Hide()
+    local ib = dragInsert:CreateTexture(nil, "ARTWORK")
+    ib:SetAllPoints(); ib:SetColorTexture(1, 0.85, 0.2, 1)
+
+    -- Full-screen mouse-up catcher so release anywhere outside works
+    dropCatcher = CreateFrame("Frame", nil, UIParent)
+    dropCatcher:SetAllPoints(UIParent)
+    dropCatcher:SetFrameStrata("HIGH")
+    dropCatcher:EnableMouse(true)
+    dropCatcher:Hide()
+
+    -- Per-frame tracker moves ghost + insert bar
+    dragTracker = CreateFrame("Frame", nil, UIParent)
+    dragTracker:Hide()
+    dragTracker:SetScript("OnUpdate", function()
+        if not dragState.active then dragTracker:Hide(); return end
+        local cx, cy = GetCursorPosition()
+        local scale  = UIParent:GetEffectiveScale()
+        cx, cy = cx / scale, cy / scale
+
+        -- Move ghost 12px right, 9px down from cursor tip
+        dragGhost:ClearAllPoints()
+        dragGhost:SetPoint("LEFT", UIParent, "BOTTOMLEFT", cx + 12, cy - 9)
+
+        -- Hit-test: find insertion index in this category
+        local meta = dragState.catTitle and rowMeta[dragState.catTitle]
+        if not meta or #meta == 0 then return end
+
+        local dstIdx = #meta   -- default: after last
+        for i, m in ipairs(meta) do
+            if m.frame and m.frame:IsShown() then
+                local top = m.frame:GetTop()
+                -- cursor above mid of row i → insert before it
+                if top and cy > top - ROW_H * 0.5 then
+                    dstIdx = i - 1; break
+                end
+            end
+        end
+        dragState.dstIdx = dstIdx
+
+        -- Anchor insert bar
+        if dstIdx <= 0 then
+            local f = meta[1] and meta[1].frame
+            if f and f:IsShown() then
+                dragInsert:ClearAllPoints()
+                dragInsert:SetPoint("LEFT",  f, "TOPLEFT",  4, 0)
+                dragInsert:SetPoint("RIGHT", f, "TOPRIGHT", -4, 0)
+                dragInsert:Show()
+            end
+        elseif dstIdx >= #meta then
+            local f = meta[#meta] and meta[#meta].frame
+            if f and f:IsShown() then
+                dragInsert:ClearAllPoints()
+                dragInsert:SetPoint("LEFT",  f, "BOTTOMLEFT",  4, 0)
+                dragInsert:SetPoint("RIGHT", f, "BOTTOMRIGHT", -4, 0)
+                dragInsert:Show()
+            end
+        else
+            local f = meta[dstIdx] and meta[dstIdx].frame
+            if f and f:IsShown() then
+                dragInsert:ClearAllPoints()
+                dragInsert:SetPoint("LEFT",  f, "BOTTOMLEFT",  4, 0)
+                dragInsert:SetPoint("RIGHT", f, "BOTTOMRIGHT", -4, 0)
+                dragInsert:Show()
+            end
+        end
+    end)
+
+    -- Finalise drop: compute new order, update DB, refresh everything
+    FinalizeDrop = function()
+        if not dragState.active then return end
+        dragState.active = false
+        dragGhost:Hide(); dragInsert:Hide()
+        dropCatcher:Hide(); dragTracker:Hide()
+
+        local src = dragState.srcIdx
+        local dst = dragState.dstIdx
+        if not src or dst == nil or dst == src or dst == src - 1 then return end
+
+        local order = Persona.db.stats.statOrder
+                  and Persona.db.stats.statOrder[dragState.catTitle]
+        if not order then return end
+
+        local item = tremove(order, src)
+        -- After removal indices shift: dst > src means dst was already past src
+        local insertAt = (dst > src) and dst or (dst + 1)
+        insertAt = math.max(1, math.min(insertAt, #order + 1))
+        table.insert(order, insertAt, item)
+
+        if Persona.Stats then Persona.Stats:Update() end
+        builtTabs["stats"] = false
+        if activeTab == "stats" then
+            BuildStats()
+            builtTabs["stats"] = true
+        end
+    end
+    dropCatcher:SetScript("OnMouseUp", FinalizeDrop)
+end
+
+BuildStats = function()
+    InitDragWidgets()
+
+    -- Hide all objects (frames + regions) from previous build
     for _, f in ipairs(statsFrameCache) do
-        if f.Hide then f:Hide() end
+        if f and f.Hide then f:Hide() end
     end
     statsFrameCache = {}
+    rowMeta = {}
+
     local p = tabPanels["stats"].child
     local y = -6
 
@@ -550,7 +679,6 @@ local function BuildStats()
             Persona.db.stats.layout = v
             if Persona.Stats then Persona.Stats:ApplyLayout() end
         end)
-
     y = Cycle(p, "Value Display", y,
         {
             {value="percent", label="Percent  (e.g. 15.23%)"},
@@ -563,8 +691,7 @@ local function BuildStats()
             if Persona.Stats then Persona.Stats:UpdateValues() end
         end)
 
-    -- Per-stat toggles with ▲▼ reorder buttons.
-    -- Order is stored in Persona.db.stats.statOrder[categoryTitle].
+    -- Per-stat rows: visibility toggle + drag-to-reorder handle
     local GROUPS = {
         { title = "Primary Stats",
           stats = {
@@ -604,16 +731,13 @@ local function BuildStats()
         }},
     }
 
-    -- Helper: get or initialise the order array for a category
     local function GetOrder(catTitle, stats)
         local db = Persona.db.stats.statOrder
         if not db[catTitle] then db[catTitle] = {} end
         local order = db[catTitle]
-        -- Seed with default order on first load
         if #order == 0 then
             for _, st in ipairs(stats) do order[#order+1] = st.id end
         else
-            -- Append any IDs added since the order was last saved
             local inOrder = {}
             for _, id in ipairs(order) do inOrder[id] = true end
             for _, st in ipairs(stats) do
@@ -623,102 +747,106 @@ local function BuildStats()
         return order
     end
 
-    local function MoveInOrder(catTitle, stats, id, dir)
-        local order = GetOrder(catTitle, stats)
-        local idx
-        for i, v in ipairs(order) do if v == id then idx = i; break end end
-        if not idx then return end
-        local swap = idx + dir
-        if swap < 1 or swap > #order then return end
-        order[idx], order[swap] = order[swap], order[idx]
-        if Persona.Stats then Persona.Stats:Update() end
-    end
-
     for _, grp in ipairs(GROUPS) do
         y = y - 6
         y = Header(p, grp.title, y)
         local order = GetOrder(grp.title, grp.stats)
 
-        -- Build a lookup by id for quick access
         local byId = {}
         for _, st in ipairs(grp.stats) do byId[st.id] = st end
 
-        -- Render stats in current order
-        for idx, id in ipairs(order) do
+        rowMeta[grp.title] = {}
+
+        for listIdx, id in ipairs(order) do
             local st = byId[id]
             if st then
+                local ROW_Y = y
 
-            local ROW_Y = y
+                -- Row container frame (used for hit-testing drag position)
+                local rowFrame = CreateFrame("Frame", nil, p)
+                rowFrame:SetHeight(ROW_H)
+                rowFrame:SetPoint("TOPLEFT",  p, "TOPLEFT",  0, ROW_Y)
+                rowFrame:SetPoint("TOPRIGHT", p, "TOPRIGHT", 0, ROW_Y)
+                rowFrame:EnableMouse(true)
 
-            -- Checkbox
-            local cb = CreateFrame("CheckButton", nil, p, "UICheckButtonTemplate")
-            cb:SetSize(18, 18)
-            cb:SetPoint("TOPLEFT", p, "TOPLEFT", 4, ROW_Y)
-            cb:SetChecked(not (Persona.db.stats.hiddenStats
-                               and Persona.db.stats.hiddenStats[st.id]))
+                -- Hover highlight texture (auto-shown by WoW on mouse-over)
+                local hl = rowFrame:CreateTexture(nil, "HIGHLIGHT")
+                hl:SetAllPoints()
+                hl:SetColorTexture(0.55, 0.40, 0.85, 0.18)
 
-            local lbl = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            lbl:SetPoint("LEFT", cb, "RIGHT", 3, 0)
-            lbl:SetText(st.label)
-            lbl:SetTextColor(0.82, 0.82, 0.85)
+                -- Visibility checkbox
+                local cb = CreateFrame("CheckButton", nil, rowFrame, "UICheckButtonTemplate")
+                cb:SetSize(18, 18)
+                cb:SetPoint("LEFT", rowFrame, "LEFT", 4, 0)
+                cb:SetChecked(not (Persona.db.stats.hiddenStats
+                                   and Persona.db.stats.hiddenStats[st.id]))
 
-            local capturedId    = st.id
-            local capturedTitle = grp.title
-            local capturedStats = grp.stats
+                local lbl = rowFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                lbl:SetPoint("LEFT", cb, "RIGHT", 3, 0)
+                lbl:SetText(st.label)
+                lbl:SetTextColor(0.82, 0.82, 0.85)
 
-            cb:SetScript("OnClick", function(self)
-                Persona.db.stats.hiddenStats = Persona.db.stats.hiddenStats or {}
-                if not not self:GetChecked() then
-                    Persona.db.stats.hiddenStats[capturedId] = nil
-                else
-                    Persona.db.stats.hiddenStats[capturedId] = true
-                end
-                if Persona.Stats then Persona.Stats:Update() end
-            end)
+                -- Hover: tint label warm yellow (lbl must be declared first)
+                rowFrame:SetScript("OnEnter", function()
+                    lbl:SetTextColor(1, 0.95, 0.6)
+                end)
+                rowFrame:SetScript("OnLeave", function()
+                    lbl:SetTextColor(0.82, 0.82, 0.85)
+                end)
 
-            -- ▲ button
-            local btnUp = CreateFrame("Button", nil, p)
-            btnUp:SetSize(14, 14)
-            btnUp:SetPoint("TOPRIGHT", p, "TOPRIGHT", -20, ROW_Y)
-            local arUp = btnUp:CreateTexture(nil, "ARTWORK")
-            arUp:SetAllPoints()
-            arUp:SetTexture("Interface\\Buttons\\Arrow-Up-Up")
-            btnUp:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
-            local capturedIdx1 = idx
-            btnUp:SetScript("OnClick", function()
-                MoveInOrder(capturedTitle, capturedStats, capturedId, -1)
-                builtTabs["stats"] = false
-                if activeTab == "stats" then
-                    BuildStats()
-                    builtTabs["stats"] = true
-                end
-            end)
+                local capturedId    = st.id
+                local capturedTitle = grp.title
+                local capturedStats = grp.stats
 
-            -- ▼ button
-            local btnDn = CreateFrame("Button", nil, p)
-            btnDn:SetSize(14, 14)
-            btnDn:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, ROW_Y)
-            local arDn = btnDn:CreateTexture(nil, "ARTWORK")
-            arDn:SetAllPoints()
-            arDn:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
-            btnDn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
-            btnDn:SetScript("OnClick", function()
-                MoveInOrder(capturedTitle, capturedStats, capturedId, 1)
-                builtTabs["stats"] = false
-                if activeTab == "stats" then
-                    BuildStats()
-                    builtTabs["stats"] = true
-                end
-            end)
+                cb:SetScript("OnClick", function(self)
+                    Persona.db.stats.hiddenStats = Persona.db.stats.hiddenStats or {}
+                    if not not self:GetChecked() then
+                        Persona.db.stats.hiddenStats[capturedId] = nil
+                    else
+                        Persona.db.stats.hiddenStats[capturedId] = true
+                    end
+                    if Persona.Stats then Persona.Stats:Update() end
+                end)
 
-            y = y - ROW_H
+                -- Whole row is draggable
+                local capturedIdx = listIdx
+                rowFrame:SetScript("OnMouseDown", function(_, btn)
+                    if btn ~= "LeftButton" then return end
+                    if not Persona.db.stats.statOrder then return end
+                    local liveOrder = GetOrder(capturedTitle, capturedStats)
+                    local liveIdx = capturedIdx
+                    for i, v in ipairs(liveOrder) do
+                        if v == capturedId then liveIdx = i; break end
+                    end
+                    dragState.active   = true
+                    dragState.id       = capturedId
+                    dragState.catTitle = capturedTitle
+                    dragState.srcIdx   = liveIdx
+                    dragState.dstIdx   = liveIdx
+                    dragGhost.lbl:SetText(st.label)
+                    dragGhost:Show()
+                    dragTracker:Show()
+                    dropCatcher:Show()
+                end)
+                rowFrame:SetScript("OnMouseUp", function(_, btn)
+                    if btn ~= "LeftButton" then return end
+                    if FinalizeDrop then FinalizeDrop() end
+                end)
+
+                -- Track this row for drop hit-testing
+                rowMeta[grp.title][#rowMeta[grp.title]+1] = {
+                    id    = st.id,
+                    label = st.label,
+                    frame = rowFrame,
+                }
+
+                y = y - ROW_H
             end  -- if st
         end
     end
 
     tabPanels["stats"].child:SetHeight(math.abs(y) + 20)
-    -- Record current children for next rebuild
-    -- Capture ALL visual objects (frames + fontstrings + textures) for next rebuild
+    -- Record all frames + regions for next rebuild
     for _, f in ipairs({p:GetChildren()}) do
         statsFrameCache[#statsFrameCache+1] = f
     end
