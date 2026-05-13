@@ -544,6 +544,18 @@ local function BuildStats()
             if Persona.Stats then Persona.Stats:ApplyLayout() end
         end)
 
+    y = Cycle(p, "Value Display", y,
+        {
+            {value="percent", label="Percent  (e.g. 15.23%)"},
+            {value="raw",     label="Rating   (e.g. 1,234)"},
+            {value="raw_pct", label="Rating + Percent"},
+        },
+        function() return Persona.db.stats.displayStyle or "percent" end,
+        function(v)
+            Persona.db.stats.displayStyle = v
+            if Persona.Stats then Persona.Stats:UpdateValues() end
+        end)
+
     -- Per-stat toggles  (mirrored from Stats.lua IDs)
     local GROUPS = {
         { title = "Primary Stats",

@@ -72,6 +72,19 @@ local function PrimaryFilter(statId)
     return function() return GetSpecPrimary() == statId end
 end
 
+-- Combat-rating raw getter
+-- Returns a function that reads a combat rating and formats it as a number.
+-- Returns nil if the rating is zero/unavailable (graceful no-op).
+local function RatingGetter(cr)
+    return function()
+        if not cr then return nil end
+        local ok, v = pcall(GetCombatRating, cr)
+        if not ok or not v or v == 0 then return nil end
+        local n = math.floor(v)
+        return BreakUpLargeNumbers and BreakUpLargeNumbers(n) or tostring(n)
+    end
+end
+
 local function GetRole()
     local cfg = Persona.db.stats.layout
     if cfg ~= "auto" then return cfg end
@@ -174,13 +187,15 @@ local function NewCategory(title)
     return cat
 end
 
--- id: unique string used for hiddenStats toggle
--- roles: nil = always show; string or table of strings = spec-filtered
-local function NewRow(cat, id, label, getter, roles)
-    local row = { id = id, getter = getter, roles = roles }
+-- id:        unique string for hiddenStats toggle
+-- roles:     nil | string | table | function
+-- rawGetter: optional fn -> raw combat-rating string (enables dual display + richer tooltip)
+local function NewRow(cat, id, label, getter, roles, rawGetter)
+    local row = { id=id, getter=getter, roles=roles, rawGetter=rawGetter }
 
     row.frame = CreateFrame("Frame", nil, scrollChild)
     row.frame:SetHeight(ROW_H)
+    row.frame:EnableMouse(true)
 
     local stripe = row.frame:CreateTexture(nil, "BACKGROUND")
     stripe:SetAllPoints()
@@ -199,6 +214,22 @@ local function NewRow(cat, id, label, getter, roles)
     row.valueFS:SetPoint("RIGHT", row.frame, "RIGHT", -7, 0)
     row.valueFS:SetJustifyH("RIGHT")
     row.valueFS:SetText("–")
+
+    -- Tooltip: always shows full info regardless of display style
+    row.frame:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(label, 0.90, 0.82, 1.00)
+        local ok1, pct = pcall(getter)
+        if ok1 and pct then GameTooltip:AddLine(tostring(pct), 1, 1, 1) end
+        if rawGetter then
+            local ok2, raw = pcall(rawGetter)
+            if ok2 and raw then
+                GameTooltip:AddLine("Rating:  " .. raw, 0.65, 0.65, 0.70)
+            end
+        end
+        GameTooltip:Show()
+    end)
+    row.frame:SetScript("OnLeave", GameTooltip_Hide)
 
     table.insert(cat.rows, row)
     return row
@@ -326,11 +357,27 @@ end
 
 -- ── Update stat values ────────────────────────────────────────
 function Stats:UpdateValues()
+    local style = Persona.db.stats.displayStyle or "percent"
     for _, cat in ipairs(categories) do
         for _, row in ipairs(cat.rows) do
             if row.getter then
-                local ok, val = pcall(row.getter)
-                row.valueFS:SetText((ok and val) or "–")
+                local ok1, pct = pcall(row.getter)
+                local pctStr = (ok1 and pct) or "–"
+                if row.rawGetter and style ~= "percent" then
+                    local ok2, raw2 = pcall(row.rawGetter)
+                    if ok2 and raw2 then
+                        if style == "raw" then
+                            row.valueFS:SetText(raw2)
+                        else
+                            row.valueFS:SetText(
+                                string.format("|cff888888%s|r  %s", raw2, pctStr))
+                        end
+                    else
+                        row.valueFS:SetText(pctStr)
+                    end
+                else
+                    row.valueFS:SetText(pctStr)
+                end
             end
         end
     end
@@ -460,17 +507,17 @@ local function BuildCategories()
     NewRow(def, "dodge", "Dodge", function()
         local ok, v = pcall(GetDodgeChance)
         return ok and v and string.format("%.2f%%", v) or "â"
-    end)
+    end, nil, RatingGetter(CR_DODGE))
 
     NewRow(def, "parry", "Parry", function()
         local ok, v = pcall(GetParryChance)
         return ok and v and v > 0 and string.format("%.2f%%", v) or "â"
-    end, {"tank", "physical"})
+    end, {"tank", "physical"}, RatingGetter(CR_PARRY))
 
     NewRow(def, "block", "Block", function()
         local ok, v = pcall(GetBlockChance)
         return ok and v and v > 0 and string.format("%.2f%%", v) or "â"
-    end, "tank")
+    end, "tank", RatingGetter(CR_BLOCK))
 
     NewRow(def, "stagger", "Stagger", function()
         local ok, v = pcall(C_PaperDollInfo.GetStaggerPercentage, "player")
@@ -504,17 +551,17 @@ local function BuildCategories()
     NewRow(off, "melee_crit", "Melee Crit", function()
         local ok, v = pcall(GetCritChance)
         return ok and v and string.format("%.2f%%", v) or "â"
-    end, {"tank", "physical"})
+    end, {"tank", "physical"}, RatingGetter(CR_CRIT_MELEE))
 
     NewRow(off, "ranged_crit", "Ranged Crit", function()
         local ok, v = pcall(GetRangedCritChance)
         return ok and v and string.format("%.2f%%", v) or "â"
-    end, "physical")
+    end, "physical", RatingGetter(CR_CRIT_RANGED))
 
     NewRow(off, "spell_crit", "Spell Crit", function()
         local ok, v = pcall(GetSpellCritChance, 7)
         return ok and v and string.format("%.2f%%", v) or "â"
-    end, {"caster", "healer"})
+    end, {"caster", "healer"}, RatingGetter(CR_CRIT_SPELL))
 
     NewRow(off, "melee_speed", "Melee Speed", function()
         local ok, spd = pcall(UnitAttackSpeed, "player")
@@ -524,12 +571,12 @@ local function BuildCategories()
     NewRow(off, "haste", "Haste", function()
         local ok, v = pcall(GetHaste)
         return ok and v and string.format("%.2f%%", v) or "â"
-    end)
+    end, nil, RatingGetter(CR_HASTE_MELEE))
 
     NewRow(off, "mastery", "Mastery", function()
         local ok, v = pcall(GetMastery)
         return ok and v and string.format("%.2f", v) or "â"
-    end)
+    end, nil, RatingGetter(CR_MASTERY))
 
     -- Misc
     local misc = NewCategory("Misc")
@@ -548,12 +595,12 @@ local function BuildCategories()
     NewRow(misc, "leech", "Leech", function()
         local ok, v = pcall(GetLeech)
         return ok and type(v) == "number" and string.format("%.2f%%", v) or "â"
-    end)
+    end, nil, RatingGetter(CR_LIFESTEAL))
 
     NewRow(misc, "avoid", "Avoidance", function()
         local ok, v = pcall(GetAvoidance)
         return ok and type(v) == "number" and string.format("%.2f%%", v) or "â"
-    end)
+    end, nil, RatingGetter(CR_AVOIDANCE))
 
     -- ── Great Vault ───────────────────────────────────────────
     local vault = NewCategory("Great Vault")
