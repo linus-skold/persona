@@ -121,8 +121,9 @@ local function RowVisible(row, role)
        Persona.db.stats.hiddenStats[row.id] then
         return false
     end
+    -- Extra visibility condition (e.g. HasOffHand for dual-wield rows)
+    if row.visOverride and not row.visOverride() then return false end
     if not row.roles then return true end
-    -- Function filter: called at check time (used by primary stat filters)
     if type(row.roles) == "function" then return row.roles() end
     if type(row.roles) == "string" then return row.roles == role end
     for _, r in ipairs(row.roles) do if r == role then return true end end
@@ -131,7 +132,7 @@ end
 
 -- ── Category / row factory ────────────────────────────────────
 local function NewCategory(title)
-    local cat = { rows = {}, collapsed = false }
+    local cat = { rows = {}, collapsed = false, plainTitle = title }
 
     cat.header = CreateFrame("Button", nil, scrollChild)
     cat.header:SetHeight(CAT_H)
@@ -189,9 +190,10 @@ end
 
 -- id:        unique string for hiddenStats toggle
 -- roles:     nil | string | table | function
--- rawGetter: optional fn -> raw combat-rating string (enables dual display + richer tooltip)
-local function NewRow(cat, id, label, getter, roles, rawGetter)
-    local row = { id=id, getter=getter, roles=roles, rawGetter=rawGetter }
+-- rawGetter:   optional fn -> raw combat-rating string (dual display + richer tooltip)
+-- visOverride: optional fn() -> bool, extra visibility condition (e.g. HasOffHand)
+local function NewRow(cat, id, label, getter, roles, rawGetter, visOverride)
+    local row = { id=id, getter=getter, roles=roles, rawGetter=rawGetter, visOverride=visOverride }
 
     row.frame = CreateFrame("Frame", nil, scrollChild)
     row.frame:SetHeight(ROW_H)
@@ -236,6 +238,27 @@ local function NewRow(cat, id, label, getter, roles, rawGetter)
 end
 
 -- ── Relayout ──────────────────────────────────────────────────
+-- Returns cat.rows sorted by user-defined order (statOrder DB table).
+-- Rows absent from the order list appear at the end in definition order.
+local function GetOrderedRows(cat)
+    local order = Persona.db.stats.statOrder and
+                  Persona.db.stats.statOrder[cat.plainTitle]
+    if not order or #order == 0 then return cat.rows end
+
+    local byId, result = {}, {}
+    for i, row in ipairs(cat.rows) do byId[row.id] = row end
+    for _, id in ipairs(order) do
+        if byId[id] then
+            result[#result+1] = byId[id]
+            byId[id] = nil
+        end
+    end
+    for _, row in ipairs(cat.rows) do   -- append any not in order list
+        if byId[row.id] then result[#result+1] = row end
+    end
+    return result
+end
+
 function Stats:Relayout()
     if not scrollChild or not CharacterStatsPane then return end
 
@@ -260,15 +283,17 @@ function Stats:Relayout()
             cat.header:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT",  0, yOff)
             yOff = yOff - CAT_H
 
-            for _, row in ipairs(cat.rows) do
+            -- Use user-defined order if set
+            local orderedRows = GetOrderedRows(cat)
+            -- First hide all, then show in order
+            for _, row in ipairs(cat.rows) do row.frame:Hide() end
+            for _, row in ipairs(orderedRows) do
                 if not cat.collapsed and RowVisible(row, role) then
                     row.frame:Show()
                     row.frame:ClearAllPoints()
                     row.frame:SetPoint("TOPLEFT",  scrollChild, "TOPLEFT",   0, yOff)
                     row.frame:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT",  0, yOff)
                     yOff = yOff - ROW_H
-                else
-                    row.frame:Hide()
                 end
             end
 
@@ -404,7 +429,7 @@ function Stats:UpdateBackground()
         classGrad:Show()
     end
 
-    -- Category header tints
+    -- Category separator lines
     for _, cat in ipairs(categories) do
         cat.bgTex:SetColorTexture(r*0.14, g*0.10, b*0.18, 0.93)
         cat.accentTex:SetColorTexture(r*0.85, g*0.75, b*1.00, 0.92)
@@ -412,11 +437,15 @@ function Stats:UpdateBackground()
             math.min(1, r * 0.9 + 0.25),
             math.min(1, g * 0.8 + 0.20),
             math.min(1, b * 0.9 + 0.15))
+        cat.line:SetColorTexture(r*0.65, g*0.45, b*0.90, 0.70)
     end
 
-    -- Header bar border tint
+    -- Header bar border + vertical dividers
     if headerBar then
         headerBar:SetBackdropBorderColor(r*0.60, g*0.45, b*0.85, 0.85)
+        local dc = {r*0.65, g*0.45, b*0.90, 0.65}
+        if headerBar.div1 then headerBar.div1:SetColorTexture(dc[1], dc[2], dc[3], dc[4]) end
+        if headerBar.div2 then headerBar.div2:SetColorTexture(dc[1], dc[2], dc[3], dc[4]) end
     end
 end
 
@@ -527,17 +556,13 @@ local function BuildCategories()
     -- Offense
     local off = NewCategory("Offense")
 
+    -- Attack Power: melee only; physical/tank specs.
+    -- Ranged AP is the same value in modern WoW for most specs so we skip it.
     NewRow(off, "ap", "Attack Power", function()
         local b, p, n = UnitAttackPower("player")
         local v = (b or 0) + (p or 0) + (n or 0)
         return BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)
     end, {"tank", "physical"})
-
-    NewRow(off, "rap", "Ranged AP", function()
-        local b, p, n = UnitRangedAttackPower("player")
-        local v = (b or 0) + (p or 0) + (n or 0)
-        return v > 0 and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
-    end, "physical")
 
     NewRow(off, "sp", "Spell Power", function()
         local max = 0
@@ -548,25 +573,55 @@ local function BuildCategories()
         return BreakUpLargeNumbers and BreakUpLargeNumbers(max) or tostring(max)
     end, {"caster", "healer"})
 
-    NewRow(off, "melee_crit", "Melee Crit", function()
+    -- Crit is unified in modern WoW: melee/ranged/spell all return the same %.
+    NewRow(off, "crit", "Crit Chance", function()
         local ok, v = pcall(GetCritChance)
-        return ok and v and string.format("%.2f%%", v) or "â"
-    end, {"tank", "physical"}, RatingGetter(CR_CRIT_MELEE))
+        return ok and v and string.format("%.2f%%", v) or "–"
+    end, nil, RatingGetter(CR_CRIT_MELEE))
 
-    NewRow(off, "ranged_crit", "Ranged Crit", function()
-        local ok, v = pcall(GetRangedCritChance)
-        return ok and v and string.format("%.2f%%", v) or "â"
-    end, "physical", RatingGetter(CR_CRIT_RANGED))
+    -- Filter: only show when an off-hand weapon is equipped (dual wield)
+    local function HasOffHand()
+        local ok, _, ohSpd = pcall(UnitAttackSpeed, "player")
+        return ok and ohSpd and ohSpd > 0
+    end
 
-    NewRow(off, "spell_crit", "Spell Crit", function()
-        local ok, v = pcall(GetSpellCritChance, 7)
-        return ok and v and string.format("%.2f%%", v) or "â"
-    end, {"caster", "healer"}, RatingGetter(CR_CRIT_SPELL))
-
-    NewRow(off, "melee_speed", "Melee Speed", function()
-        local ok, spd = pcall(UnitAttackSpeed, "player")
-        return ok and spd and string.format("%.2fs", spd) or "â"
+    -- Attack Speed (split MH / OH)
+    NewRow(off, "melee_speed",    "Attack Speed (MH)", function()
+        local ok, main = pcall(UnitAttackSpeed, "player")
+        return ok and main and string.format("%.2fs", main) or "–"
     end, {"tank", "physical"})
+
+    NewRow(off, "speed_oh",       "Attack Speed (OH)", function()
+        local ok, _, ohSpd = pcall(UnitAttackSpeed, "player")
+        return ok and ohSpd and ohSpd > 0 and string.format("%.2fs", ohSpd) or "–"
+    end, {"tank", "physical"}, nil, nil, HasOffHand)
+
+    -- Damage Range (split MH / OH)
+    NewRow(off, "dmg_mh",         "Damage (MH)", function()
+        local ok, mn, mx = pcall(UnitDamage, "player")
+        return ok and mn and string.format("%.0f – %.0f", mn, mx) or "–"
+    end, {"tank", "physical"})
+
+    NewRow(off, "dmg_oh",         "Damage (OH)", function()
+        local ok, _, _, mnOH, mxOH = pcall(UnitDamage, "player")
+        return ok and mnOH and mnOH > 0
+               and string.format("%.0f – %.0f", mnOH, mxOH) or "–"
+    end, {"tank", "physical"}, nil, nil, HasOffHand)
+
+    -- Weapon DPS  (split MH / OH)  formula from DejaCharacterStats
+    NewRow(off, "weapon_dps",     "Weapon DPS (MH)", function()
+        local okD, mn, mx   = pcall(UnitDamage, "player")
+        local okS, mainSpd  = pcall(UnitAttackSpeed, "player")
+        if not okD or not okS or not mainSpd or mainSpd == 0 then return "–" end
+        return string.format("%.1f", (mn + mx) / 2 / mainSpd)
+    end, {"tank", "physical"})
+
+    NewRow(off, "dps_oh",         "Weapon DPS (OH)", function()
+        local okD, _, _, mnOH, mxOH = pcall(UnitDamage, "player")
+        local okS, _, ohSpd         = pcall(UnitAttackSpeed, "player")
+        if not okD or not okS or not ohSpd or ohSpd == 0 then return "–" end
+        return string.format("%.1f", (mnOH + mxOH) / 2 / ohSpd)
+    end, {"tank", "physical"}, nil, nil, HasOffHand)
 
     NewRow(off, "haste", "Haste", function()
         local ok, v = pcall(GetHaste)
@@ -575,7 +630,7 @@ local function BuildCategories()
 
     NewRow(off, "mastery", "Mastery", function()
         local ok, v = pcall(GetMastery)
-        return ok and v and string.format("%.2f", v) or "â"
+        return ok and v and string.format("%.2f%%", v) or "–"
     end, nil, RatingGetter(CR_MASTERY))
 
     -- Misc
@@ -683,19 +738,19 @@ function Stats:Setup()
     headerBar.ilvlVal = colIlvl.val
 
     -- Divider
-    local div1 = headerBar:CreateTexture(nil, "ARTWORK")
-    div1:SetSize(1, HEADER_H - 8)
-    div1:SetPoint("LEFT", headerBar, "LEFT", 68, 0)
-    div1:SetColorTexture(0.35, 0.22, 0.55, 0.60)
+    headerBar.div1 = headerBar:CreateTexture(nil, "ARTWORK")
+    headerBar.div1:SetSize(1, HEADER_H - 8)
+    headerBar.div1:SetPoint("LEFT", headerBar, "LEFT", 68, 0)
+    headerBar.div1:SetColorTexture(0.35, 0.22, 0.55, 0.60)
 
     local colDura = MakeCol(headerBar, "CENTER", 0)
     colDura.lbl:SetText("Durability")
     headerBar.duraVal = colDura.val
 
-    local div2 = headerBar:CreateTexture(nil, "ARTWORK")
-    div2:SetSize(1, HEADER_H - 8)
-    div2:SetPoint("RIGHT", headerBar, "RIGHT", -68, 0)
-    div2:SetColorTexture(0.35, 0.22, 0.55, 0.60)
+    headerBar.div2 = headerBar:CreateTexture(nil, "ARTWORK")
+    headerBar.div2:SetSize(1, HEADER_H - 8)
+    headerBar.div2:SetPoint("RIGHT", headerBar, "RIGHT", -68, 0)
+    headerBar.div2:SetColorTexture(0.35, 0.22, 0.55, 0.60)
 
     local colCost = MakeCol(headerBar, "RIGHT", -4)
     colCost.lbl:SetText("Repair")

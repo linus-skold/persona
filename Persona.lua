@@ -37,7 +37,8 @@ Persona.defaults = {
         classBackground     = true,
         layout              = "auto",
         displayStyle        = "percent",  -- "percent" | "raw" | "raw_pct"
-        hiddenStats         = {},     -- [rowId] = true to hide that stat row
+        hiddenStats         = {},
+        statOrder           = {},     -- ["CategoryTitle"] = {"id1","id2",...}     -- [rowId] = true to hide that stat row
     },
     -- Great Vault
     vault = {

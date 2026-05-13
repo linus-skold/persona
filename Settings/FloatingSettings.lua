@@ -519,7 +519,14 @@ local function BuildSlots()
     tabPanels["slots"].child:SetHeight(math.abs(y) + 20)
 end
 
+local statsFrameCache = {}  -- tracks frames built by BuildStats for clean rebuild
+
 local function BuildStats()
+    -- Hide frames from any previous build
+    for _, f in ipairs(statsFrameCache) do
+        if f.Hide then f:Hide() end
+    end
+    statsFrameCache = {}
     local p = tabPanels["stats"].child
     local y = -6
 
@@ -556,34 +563,37 @@ local function BuildStats()
             if Persona.Stats then Persona.Stats:UpdateValues() end
         end)
 
-    -- Per-stat toggles  (mirrored from Stats.lua IDs)
+    -- Per-stat toggles with ▲▼ reorder buttons.
+    -- Order is stored in Persona.db.stats.statOrder[categoryTitle].
     local GROUPS = {
         { title = "Primary Stats",
           stats = {
-            {id="strength",  label="Strength"},
-            {id="agility",   label="Agility"},
-            {id="intellect", label="Intellect"},
-            {id="stamina",   label="Stamina"},
+            {id="strength",   label="Strength"},
+            {id="agility",    label="Agility"},
+            {id="intellect",  label="Intellect"},
+            {id="stamina",    label="Stamina"},
         }},
         { title = "Defense",
           stats = {
-            {id="armor",      label="Armor"},
-            {id="dodge",      label="Dodge"},
-            {id="parry",      label="Parry"},
-            {id="block",      label="Block"},
-            {id="stagger",    label="Stagger"},
+            {id="armor",     label="Armor"},
+            {id="dodge",     label="Dodge"},
+            {id="parry",     label="Parry"},
+            {id="block",     label="Block"},
+            {id="stagger",   label="Stagger"},
         }},
         { title = "Offense",
           stats = {
-            {id="ap",         label="Attack Power"},
-            {id="rap",        label="Ranged AP"},
-            {id="sp",         label="Spell Power"},
-            {id="melee_crit", label="Melee Crit"},
-            {id="ranged_crit",label="Ranged Crit"},
-            {id="spell_crit", label="Spell Crit"},
-            {id="melee_speed",label="Melee Speed"},
-            {id="haste",      label="Haste"},
-            {id="mastery",    label="Mastery"},
+            {id="ap",          label="Attack Power"},
+            {id="sp",          label="Spell Power"},
+            {id="crit",        label="Crit Chance"},
+            {id="dmg_mh",      label="Damage (MH)"},
+            {id="dmg_oh",      label="Damage (OH)"},
+            {id="weapon_dps",  label="Weapon DPS (MH)"},
+            {id="dps_oh",      label="Weapon DPS (OH)"},
+            {id="melee_speed", label="Attack Speed (MH)"},
+            {id="speed_oh",    label="Attack Speed (OH)"},
+            {id="haste",       label="Haste"},
+            {id="mastery",     label="Mastery"},
         }},
         { title = "Misc",
           stats = {
@@ -594,41 +604,127 @@ local function BuildStats()
         }},
     }
 
+    -- Helper: get or initialise the order array for a category
+    local function GetOrder(catTitle, stats)
+        local db = Persona.db.stats.statOrder
+        if not db[catTitle] then db[catTitle] = {} end
+        local order = db[catTitle]
+        -- Seed with default order on first load
+        if #order == 0 then
+            for _, st in ipairs(stats) do order[#order+1] = st.id end
+        else
+            -- Append any IDs added since the order was last saved
+            local inOrder = {}
+            for _, id in ipairs(order) do inOrder[id] = true end
+            for _, st in ipairs(stats) do
+                if not inOrder[st.id] then order[#order+1] = st.id end
+            end
+        end
+        return order
+    end
+
+    local function MoveInOrder(catTitle, stats, id, dir)
+        local order = GetOrder(catTitle, stats)
+        local idx
+        for i, v in ipairs(order) do if v == id then idx = i; break end end
+        if not idx then return end
+        local swap = idx + dir
+        if swap < 1 or swap > #order then return end
+        order[idx], order[swap] = order[swap], order[idx]
+        if Persona.Stats then Persona.Stats:Update() end
+    end
+
     for _, grp in ipairs(GROUPS) do
         y = y - 6
         y = Header(p, grp.title, y)
-        local col, rowY = 0, y
-        for _, st in ipairs(grp.stats) do
-            local xOff = col == 0 and 4 or 200
+        local order = GetOrder(grp.title, grp.stats)
+
+        -- Build a lookup by id for quick access
+        local byId = {}
+        for _, st in ipairs(grp.stats) do byId[st.id] = st end
+
+        -- Render stats in current order
+        for idx, id in ipairs(order) do
+            local st = byId[id]
+            if st then
+
+            local ROW_Y = y
+
+            -- Checkbox
             local cb = CreateFrame("CheckButton", nil, p, "UICheckButtonTemplate")
             cb:SetSize(18, 18)
-            cb:SetPoint("TOPLEFT", p, "TOPLEFT", xOff, rowY)
-            cb:SetChecked(not (Persona.db.stats.hiddenStats and Persona.db.stats.hiddenStats[st.id]))
+            cb:SetPoint("TOPLEFT", p, "TOPLEFT", 4, ROW_Y)
+            cb:SetChecked(not (Persona.db.stats.hiddenStats
+                               and Persona.db.stats.hiddenStats[st.id]))
 
             local lbl = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             lbl:SetPoint("LEFT", cb, "RIGHT", 3, 0)
             lbl:SetText(st.label)
             lbl:SetTextColor(0.82, 0.82, 0.85)
 
-            local capturedId = st.id
+            local capturedId    = st.id
+            local capturedTitle = grp.title
+            local capturedStats = grp.stats
+
             cb:SetScript("OnClick", function(self)
                 Persona.db.stats.hiddenStats = Persona.db.stats.hiddenStats or {}
                 if not not self:GetChecked() then
-                    Persona.db.stats.hiddenStats[capturedId] = nil   -- visible
+                    Persona.db.stats.hiddenStats[capturedId] = nil
                 else
-                    Persona.db.stats.hiddenStats[capturedId] = true  -- hidden
+                    Persona.db.stats.hiddenStats[capturedId] = true
                 end
                 if Persona.Stats then Persona.Stats:Update() end
             end)
 
-            col = col + 1
-            if col >= 2 then col = 0; rowY = rowY - ROW_H end
+            -- ▲ button
+            local btnUp = CreateFrame("Button", nil, p)
+            btnUp:SetSize(14, 14)
+            btnUp:SetPoint("TOPRIGHT", p, "TOPRIGHT", -20, ROW_Y)
+            local arUp = btnUp:CreateTexture(nil, "ARTWORK")
+            arUp:SetAllPoints()
+            arUp:SetTexture("Interface\\Buttons\\Arrow-Up-Up")
+            btnUp:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
+            local capturedIdx1 = idx
+            btnUp:SetScript("OnClick", function()
+                MoveInOrder(capturedTitle, capturedStats, capturedId, -1)
+                builtTabs["stats"] = false
+                if activeTab == "stats" then
+                    BuildStats()
+                    builtTabs["stats"] = true
+                end
+            end)
+
+            -- ▼ button
+            local btnDn = CreateFrame("Button", nil, p)
+            btnDn:SetSize(14, 14)
+            btnDn:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, ROW_Y)
+            local arDn = btnDn:CreateTexture(nil, "ARTWORK")
+            arDn:SetAllPoints()
+            arDn:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+            btnDn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
+            btnDn:SetScript("OnClick", function()
+                MoveInOrder(capturedTitle, capturedStats, capturedId, 1)
+                builtTabs["stats"] = false
+                if activeTab == "stats" then
+                    BuildStats()
+                    builtTabs["stats"] = true
+                end
+            end)
+
+            y = y - ROW_H
+            end  -- if st
         end
-        if col ~= 0 then rowY = rowY - ROW_H end
-        y = rowY
     end
 
     tabPanels["stats"].child:SetHeight(math.abs(y) + 20)
+    -- Record current children for next rebuild
+    -- Capture ALL visual objects (frames + fontstrings + textures) for next rebuild
+    for _, f in ipairs({p:GetChildren()}) do
+        statsFrameCache[#statsFrameCache+1] = f
+    end
+    for _, r in ipairs({p:GetRegions()}) do
+        statsFrameCache[#statsFrameCache+1] = r
+    end
 end
 
 local function BuildVault()
