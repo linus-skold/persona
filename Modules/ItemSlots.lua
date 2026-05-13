@@ -182,6 +182,36 @@ local ENCHANT_SHORT = {
 }
 
 local enchantPattern   = ENCHANTED_TOOLTIP_LINE:gsub("%%s", "(.*)")
+
+-- ── Upgrade track colours ────────────────────────────────────
+-- Maps upgrade track name → WoW item quality colour (hex string).
+-- Myth uses Artifact gold; each lower track steps down one quality tier.
+local UPGRADE_TRACKS = {
+    { name = "Myth",       hex = "e6cc80" },  -- Artifact / Heirloom gold
+    { name = "Hero",       hex = "ff8000" },  -- Legendary orange
+    { name = "Champion",   hex = "a335ee" },  -- Epic purple
+    { name = "Veteran",    hex = "0070dd" },  -- Rare blue
+    { name = "Adventurer", hex = "1eff00" },  -- Uncommon green
+    { name = "Explorer",   hex = "9d9d9d" },  -- Common grey
+}
+
+--- Returns a coloured "X/Y" upgrade level string, or nil if not found.
+local function GetUpgradeText(unit, slot)
+    local ok, data = pcall(C_TooltipInfo.GetInventoryItem, unit, slot)
+    if not ok or not data then return nil end
+
+    for _, line in ipairs(data.lines) do
+        -- Strip colour escape codes so we match plain text
+        local text = (line.leftText or ""):gsub("|c%x%x%x%x%x%x%x%x(.-)%|r", "%1"):gsub("|[cCrR].-|", "")
+        for _, track in ipairs(UPGRADE_TRACKS) do
+            local cur, max = text:match(track.name .. "%s+(%d+)/(%d+)")
+            if cur then
+                return string.format("|cff%s%s/%s|r", track.hex, cur, max)
+            end
+        end
+    end
+    return nil
+end
 local atlasPattern     = "(.*)%s*|A:(.*):20:20|a"
 local coloredPattern   = "|cn(.*):(.*)|r"
 
@@ -300,6 +330,13 @@ local function CreateButtonDisplay(button)
     f.ilvlInside = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightOutline")
     f.ilvlInside:SetPoint("BOTTOM", button, "BOTTOM", 0, 3)
     f.ilvlInside:SetTextColor(1, 1, 1)
+
+    -- Upgrade level badge: "3/8" coloured by track, top-right corner of icon
+    f.upgradeFS = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightOutline")
+    f.upgradeFS:SetFont(f.upgradeFS:GetFont(), 9, "OUTLINE")
+    f.upgradeFS:SetPoint("TOPRIGHT", button, "TOPRIGHT", 1, -1)
+    f.upgradeFS:SetJustifyH("RIGHT")
+    f.upgradeFS:Hide()
 
     -- enchant text
     f.enchant = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightOutline")
@@ -433,6 +470,19 @@ local function UpdateButtonFull(button, unit)
         f.ilvlInside:SetText("")
     end
 
+    -- ── Upgrade level badge ──────────────────────────────────
+    if link then
+        local upgradeText = GetUpgradeText(unit, slot)
+        if upgradeText then
+            f.upgradeFS:SetText(upgradeText)
+            f.upgradeFS:Show()
+        else
+            f.upgradeFS:Hide()
+        end
+    else
+        f.upgradeFS:Hide()
+    end
+
     -- ── Enchant ──────────────────────────────────────────────
     if cfg.showEnchants then
         local atlas, enchantText = GetEnchantDisplay(unit, slot)
@@ -538,6 +588,7 @@ local function UpdateButtonBasic(button, unit)
         f.ilvlOutside:SetText("")
         f.ilvlInside:SetText("")
         f.enchant:SetText("")
+        f.upgradeFS:Hide()
         f.wrongStat:Hide()
         button.icon:SetDesaturated(false)
         for i = 1, NUM_SOCKET_TEXTURES do f.sockets[i]:Hide() end
