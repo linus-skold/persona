@@ -13,6 +13,5 @@ Modules\Stats.lua
 Modules\ItemSlots.lua
 Modules\GreatVault.lua
 Modules\PanelCustomizer.lua
-Modules\PersonaPanel.lua
 Settings\FloatingSettings.lua
 Settings\Settings.lua

@@ -481,9 +481,7 @@ end
 SLASH_PERSONA1 = "/persona"
 SlashCmdList["PERSONA"] = function(msg)
     msg = strtrim(msg or ""):lower()
-    if msg == "" or msg == "panel" then
-        if Persona.PersonaPanel then Persona.PersonaPanel:Toggle() end
-    elseif msg == "config" or msg == "settings" then
+    if msg == "" or msg == "config" or msg == "settings" then
         Persona.OpenSettings()
     elseif msg == "slots" or msg == "stats" or msg == "vault" then
         Persona.OpenSettings(msg)
@@ -491,6 +489,6 @@ SlashCmdList["PERSONA"] = function(msg)
         PersonaDB = nil
         ReloadUI()
     else
-        print("|cffcc99ffPersona|r  —  /persona [panel | settings | slots | stats | vault | reset]")
+        print("|cffcc99ffPersona|r  —  /persona  [settings | slots | stats | vault | reset]")
     end
 end
