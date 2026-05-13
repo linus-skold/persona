@@ -1,0 +1,18 @@
+## Interface: 120001
+## Title: |cffcc99ffPersona|r
+## Notes: Enhanced character panel — stats, gear info, great vault & panel customization.
+## Author: You
+## Version: 1.0.0
+## SavedVariables: PersonaDB
+## X-Category: Character
+## X-License: MIT
+
+Locales\enUS.lua
+Persona.lua
+Modules\Stats.lua
+Modules\ItemSlots.lua
+Modules\GreatVault.lua
+Modules\PanelCustomizer.lua
+Modules\PersonaPanel.lua
+Settings\FloatingSettings.lua
+Settings\Settings.lua
