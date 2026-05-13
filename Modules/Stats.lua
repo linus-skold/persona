@@ -291,16 +291,23 @@ end
 
 -- ── Class colour: background gradient + category headers ──────
 function Stats:UpdateBackground()
-    local _, cls = UnitClass("player")
-    local c = Persona.classColors[cls] or { 0.6, 0.5, 0.9 }
-    local r, g, b = c[1], c[2], c[3]
+    -- When class colour is enabled use the player's class colour;
+    -- when disabled fall back to Persona's own purple/violet.
+    local r, g, b
+    if Persona.db.stats.classBackground then
+        local _, cls = UnitClass("player")
+        local c = Persona.classColors[cls] or { 0.6, 0.5, 0.9 }
+        r, g, b = c[1], c[2], c[3]
+    else
+        r, g, b = 0.55, 0.35, 0.85   -- Persona purple
+    end
 
-    -- Full-pane gradient
+    -- Full-pane gradient (always shown)
     if classGrad then
         classGrad:SetGradient("VERTICAL",
             CreateColor(r * 0.20, g * 0.16, b * 0.26, 0.94),
             CreateColor(r * 0.03, g * 0.02, b * 0.05, 0.94))
-        classGrad:SetShown(Persona.db.stats.classBackground)
+        classGrad:Show()
     end
 
     -- Category header tints
@@ -326,13 +333,6 @@ function Stats:Update()
     self:UpdateHeader()
     self:UpdateValues()
     self:Relayout()
-    if scrollFrame then
-        if Persona.db.stats.scrollbar then
-            scrollFrame.ScrollBar:SetShown(true)
-        else
-            scrollFrame.ScrollBar:Hide()
-        end
-    end
 end
 
 function Stats:SetEnabled(en)
@@ -603,12 +603,8 @@ function Stats:Setup()
     scrollFrame.ScrollBar:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", -16,  16)
     scrollFrame.ScrollBar:Hide()
 
-    scrollFrame:HookScript("OnScrollRangeChanged", function(_, _, yrange)
-        if Persona.db.stats.scrollbar then
-            scrollFrame.ScrollBar:SetShown(math.floor(yrange) ~= 0)
-        else
-            scrollFrame.ScrollBar:Hide()
-        end
+    scrollFrame:HookScript("OnScrollRangeChanged", function()
+        scrollFrame.ScrollBar:Hide()
     end)
 
     -- Scroll child

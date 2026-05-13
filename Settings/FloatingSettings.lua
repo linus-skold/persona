@@ -524,16 +524,10 @@ local function BuildStats()
     local y = -6
 
     y = Header(p, "Appearance", y)
-    _, y = Check(p, "Class Color Headers & Background", y,
+    _, y = Check(p, "Use Class Colour  (off = Persona purple)", y,
         function() return Persona.db.stats.classBackground end,
         function(v)
             Persona.db.stats.classBackground = v
-            if Persona.Stats then Persona.Stats:Update() end
-        end)
-    _, y = Check(p, "Show Scrollbar", y,
-        function() return Persona.db.stats.scrollbar end,
-        function(v)
-            Persona.db.stats.scrollbar = v
             if Persona.Stats then Persona.Stats:Update() end
         end)
     y = Cycle(p, "Stat Layout", y,

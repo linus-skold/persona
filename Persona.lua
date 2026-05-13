@@ -34,7 +34,6 @@ Persona.defaults = {
     -- Stats Panel
     stats = {
         enabled             = true,
-        scrollbar           = false,
         classBackground     = true,
         layout              = "auto",
         hiddenStats         = {},     -- [rowId] = true to hide that stat row
