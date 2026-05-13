@@ -1,36 +1,19 @@
-name: Release
-
+name: Package and release
 on:
-  push:
-    tags:
-      - "v*"
-
-permissions:
-  contents: write
-
+    push:
+        branches:
+            - main
+        tags:
+            - '**'
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Get version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-
-      - name: Create zip
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/dist
-          mkdir -p /tmp/Persona
-          rsync -av --exclude='.git' --exclude='dist' --exclude='.github' . /tmp/Persona/
-          cd /tmp
-          zip -r "$GITHUB_WORKSPACE/dist/Persona-${{ steps.version.outputs.VERSION }}.zip" Persona/
-      
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "Persona ${{ steps.version.outputs.VERSION }}"
-          tag_name: ${{ steps.version.outputs.VERSION }}
-          generate_release_notes: true
-          files: dist/Persona-${{ steps.version.outputs.VERSION }}.zip
+    release:
+        runs-on: ubuntu-latest
+        env:
+            GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+        steps:
+            - name: Clone project
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 0
+            - name: Package and release
+              uses: BigWigsMods/packager@v2
