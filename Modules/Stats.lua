@@ -94,13 +94,13 @@ local function GetRole()
     return (ok and ROLE_SPEC[specId]) or "physical"
 end
 
--- ── Safe vault enum access ────────────────────────────────────
--- Enum may differ between expansion patches; fall back to known numeric values.
-local VAULT_TYPE_DUNGEON = (Enum.WeeklyRewardChestThresholdType
-    and Enum.WeeklyRewardChestThresholdType.Dungeon)    or 1
-local VAULT_TYPE_RAID    = (Enum.WeeklyRewardChestThresholdType
-    and Enum.WeeklyRewardChestThresholdType.Raid)       or 2
-local VAULT_TYPE_WORLD   = 4   -- TWW / Midnight: World / Delves row
+-- Vault activity type IDs (TWW/Midnight uses Activities for M+, not Dungeon)
+local E = Enum.WeeklyRewardChestThresholdType or {}
+local VAULT_ROWS = {
+    { key="dungeons", label="Dungeons", typeId = E.Activities or E.Dungeon or 1 },
+    { key="raids",    label="Raids",    typeId = E.Raid        or 2 },
+    { key="world",    label="World",    typeId = E.World       or 4 },
+}
 
 -- ── Layout constants ──────────────────────────────────────────
 local CAT_H  = 22
@@ -154,17 +154,17 @@ local function NewCategory(title)
     cat.accentTex:SetPoint("LEFT", cat.header, "LEFT", 0, 0)
     cat.accentTex:SetColorTexture(0.55, 0.40, 0.85, 0.90)
 
-    -- Collapse arrow (texture so it renders in any locale)
-    -- Use a texture path that ships with every WoW client
+    -- Collapse arrow — TOPLEFT with explicit Y so it's always centred in CAT_H
     cat.arrow = cat.header:CreateTexture(nil, "OVERLAY")
-    cat.arrow:SetSize(8, 8)
-    cat.arrow:SetPoint("LEFT", cat.header, "LEFT", 7, 0)
+    cat.arrow:SetSize(10, 10)
+    cat.arrow:SetPoint("TOPLEFT", cat.header, "TOPLEFT", 6, -math.floor((CAT_H - 10) / 2))
     cat.arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
     cat.arrow:SetVertexColor(0.90, 0.82, 1.00)
+    cat.arrow:SetRotation(0)
 
     -- Title
     cat.titleFS = cat.header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    cat.titleFS:SetPoint("LEFT", cat.header, "LEFT", 20, 0)
+    cat.titleFS:SetPoint("LEFT", cat.header, "LEFT", 22, 0)
     cat.titleFS:SetText(title)
     cat.titleFS:SetTextColor(0.90, 0.82, 1.00)
 
@@ -175,9 +175,9 @@ local function NewCategory(title)
         cat.collapsed = not cat.collapsed
         -- Rotate arrow: down = expanded, right = collapsed
         if cat.collapsed then
-            cat.arrow:SetTexture("Interface\\Buttons\\Arrow-Right-Up")  -- collapsed
+            cat.arrow:SetRotation(math.pi / 2)   -- points right = collapsed
         else
-            cat.arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")   -- expanded
+            cat.arrow:SetRotation(0)              -- points down  = expanded
         end
         Stats:Relayout()
     end)
@@ -466,21 +466,29 @@ function Stats:GetVaultText(typeId)
     local ok, acts = pcall(C_WeeklyRewards.GetActivities, typeId)
     if not ok or not acts or #acts == 0 then return "–" end
 
-    local progress  = acts[1].progress  or 0
+    -- progress is the total completions (same across all tier entries).
+    -- threshold per entry = completions needed for that slot.
+    local progress  = acts[1].progress or 0
     local maxThresh = acts[#acts].threshold or 1
+    local slots     = #acts
     local unlocked  = 0
     for _, a in ipairs(acts) do
-        if (a.progress or 0) >= (a.threshold or 1) then unlocked = unlocked + 1 end
+        -- Blizzard sets isUnlocked on completed tiers; fall back to threshold check.
+        if a.isUnlocked or (a.progress or 0) >= (a.threshold or 1) then
+            unlocked = unlocked + 1
+        end
     end
 
-    if Persona.db.vault.displayMode == "slots" then
-        local n   = #acts
-        local col = unlocked >= n and "|cff00ff00" or "|cffffcc00"
-        return string.format("%s%d|r / %d slots", col, unlocked, n)
+    local db = Persona.db.vault
+    if db.displayMode == "slots" then
+        local col = unlocked >= slots and "|cff00ff00"
+                 or unlocked  > 0     and "|cffffcc00"
+                 or                       "|cffaaaaaa"
+        return string.format("%s%d|r / %d", col, unlocked, slots)
     else
         local col = progress >= maxThresh and "|cff00ff00"
-                 or progress > 0           and "|cffffcc00"
-                 or "|cffaaaaaa"
+                 or progress  > 0         and "|cffffcc00"
+                 or                            "|cffaaaaaa"
         return string.format("%s%d|r / %d", col, progress, maxThresh)
     end
 end
@@ -655,22 +663,41 @@ local function BuildCategories()
     local vault = NewCategory("Great Vault")
     Stats.vaultCategory = vault
 
-    local VAULT_PROBE = {
-        { id = VAULT_TYPE_DUNGEON, label = "Dungeons" },
-        { id = VAULT_TYPE_RAID,    label = "Raids"    },
-        { id = VAULT_TYPE_WORLD,   label = "World"    },
-    }
+    -- Build vault rows in user-defined order, respecting per-row hide flag.
+    -- VAULT_ROWS defined at top of file using correct TWW enum values.
+    local function GetVaultOrder()
+        local db    = Persona.db.vault
+        local order = db.vaultRowOrder
+        if not order or #order == 0 then
+            order = {}
+            for _, vr in ipairs(VAULT_ROWS) do order[#order+1] = vr.key end
+            db.vaultRowOrder = order
+        end
+        -- Append any new keys added since last save
+        local inOrder = {}
+        for _, k in ipairs(order) do inOrder[k] = true end
+        for _, vr in ipairs(VAULT_ROWS) do
+            if not inOrder[vr.key] then order[#order+1] = vr.key end
+        end
+        return order
+    end
 
-    local addedIds = {}
-    for _, vt in ipairs(VAULT_PROBE) do
-        if not addedIds[vt.id] then
-            addedIds[vt.id] = true
-            local capturedId    = vt.id
-            local capturedLabel = vt.label
-            -- vault rows use nil roles so they always pass RoleMatch
-            NewRow(vault, "vault_" .. capturedLabel:lower(), capturedLabel, function()
+    local byKey = {}
+    for _, vr in ipairs(VAULT_ROWS) do byKey[vr.key] = vr end
+
+    for _, key in ipairs(GetVaultOrder()) do
+        local vr = byKey[key]
+        if vr then
+            local capturedKey   = vr.key
+            local capturedTypeId = vr.typeId
+            local capturedLabel  = vr.label
+            NewRow(vault, "vault_" .. capturedKey, capturedLabel, function()
                 if not Persona.db.vault.enabled then return "|cff888888disabled|r" end
-                return Stats:GetVaultText(capturedId)
+                return Stats:GetVaultText(capturedTypeId)
+            end, nil, nil, function()
+                -- visOverride: hide if user toggled this row off
+                local h = Persona.db.vault.hiddenVaultRows
+                return not (h and h[capturedKey])
             end)
         end
     end

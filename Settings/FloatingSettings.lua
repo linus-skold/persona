@@ -855,12 +855,16 @@ BuildStats = function()
     end
 end
 
+local vaultFrameCache = {}
+
 local function BuildVault()
+    for _, f in ipairs(vaultFrameCache) do if f and f.Hide then f:Hide() end end
+    vaultFrameCache = {}
     local p = tabPanels["vault"].child
     local y = -6
 
     y = Header(p, "Great Vault  (shown in Stats pane)", y)
-    _, y = Check(p, "Show vault progress", y,
+    _, y = Check(p, "Show vault section", y,
         function() return Persona.db.vault.enabled end,
         function(v)
             Persona.db.vault.enabled = v
@@ -877,7 +881,109 @@ local function BuildVault()
             if Persona.Stats then Persona.Stats:Update() end
         end)
 
+    y = Header(p, "Rows", y)
+
+    -- Row definitions matching Stats.lua VAULT_ROWS
+    local ROWS = {
+        { key="dungeons", label="Dungeons" },
+        { key="raids",    label="Raids"    },
+        { key="world",    label="World"    },
+    }
+
+    local function GetVaultOrder()
+        local db    = Persona.db.vault
+        local order = db.vaultRowOrder
+        if not order or #order == 0 then
+            db.vaultRowOrder = {}
+            for _, r in ipairs(ROWS) do db.vaultRowOrder[#db.vaultRowOrder+1] = r.key end
+            order = db.vaultRowOrder
+        end
+        local inOrder = {}
+        for _, k in ipairs(order) do inOrder[k] = true end
+        for _, r in ipairs(ROWS) do
+            if not inOrder[r.key] then order[#order+1] = r.key end
+        end
+        return order
+    end
+
+    local function MoveVaultRow(key, dir)
+        local order = GetVaultOrder()
+        local idx
+        for i, k in ipairs(order) do if k == key then idx = i; break end end
+        if not idx then return end
+        local swap = idx + dir
+        if swap < 1 or swap > #order then return end
+        order[idx], order[swap] = order[swap], order[idx]
+        if Persona.Stats then Persona.Stats:Update() end
+    end
+
+    local byKey = {}
+    for _, r in ipairs(ROWS) do byKey[r.key] = r end
+
+    local order = GetVaultOrder()
+    for listIdx, key in ipairs(order) do
+        local r = byKey[key]
+        if r then
+            local capturedKey = key
+
+            -- Checkbox
+            local cb = CreateFrame("CheckButton", nil, p, "UICheckButtonTemplate")
+            cb:SetSize(18, 18)
+            cb:SetPoint("TOPLEFT", p, "TOPLEFT", 4, y)
+            local hidden = Persona.db.vault.hiddenVaultRows
+            cb:SetChecked(not (hidden and hidden[key]))
+
+            local lbl = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            lbl:SetPoint("LEFT", cb, "RIGHT", 3, 0)
+            lbl:SetText(r.label)
+            lbl:SetTextColor(0.82, 0.82, 0.85)
+
+            cb:SetScript("OnClick", function(self)
+                Persona.db.vault.hiddenVaultRows = Persona.db.vault.hiddenVaultRows or {}
+                Persona.db.vault.hiddenVaultRows[capturedKey] = not not not self:GetChecked()
+                if Persona.Stats then Persona.Stats:Update() end
+            end)
+
+            -- ▲ button
+            local btnUp = CreateFrame("Button", nil, p)
+            btnUp:SetSize(14, 14)
+            btnUp:SetPoint("TOPRIGHT", p, "TOPRIGHT", -20, y)
+            local arUp = btnUp:CreateTexture(nil, "ARTWORK")
+            arUp:SetAllPoints()
+            arUp:SetTexture("Interface\\Buttons\\Arrow-Up-Up")
+            btnUp:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
+            local capturedIdx = listIdx
+            btnUp:SetScript("OnClick", function()
+                MoveVaultRow(capturedKey, -1)
+                builtTabs["vault"] = false
+                if activeTab == "vault" then BuildVault(); builtTabs["vault"] = true end
+            end)
+
+            -- ▼ button
+            local btnDn = CreateFrame("Button", nil, p)
+            btnDn:SetSize(14, 14)
+            btnDn:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, y)
+            local arDn = btnDn:CreateTexture(nil, "ARTWORK")
+            arDn:SetAllPoints()
+            arDn:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+            btnDn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
+            btnDn:SetScript("OnClick", function()
+                MoveVaultRow(capturedKey, 1)
+                builtTabs["vault"] = false
+                if activeTab == "vault" then BuildVault(); builtTabs["vault"] = true end
+            end)
+
+            y = y - ROW_H
+        end
+    end
+
     tabPanels["vault"].child:SetHeight(math.abs(y) + 20)
+    for _, f in ipairs({tabPanels["vault"].child:GetChildren()}) do
+        vaultFrameCache[#vaultFrameCache+1] = f
+    end
+    for _, r in ipairs({tabPanels["vault"].child:GetRegions()}) do
+        vaultFrameCache[#vaultFrameCache+1] = r
+    end
 end
 
 local function BuildPanel()

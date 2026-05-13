@@ -44,9 +44,8 @@ Persona.defaults = {
     vault = {
         enabled             = true,
         displayMode         = "progress", -- "progress" | "slots"
-        showDungeons        = true,
-        showRaids           = true,
-        showPvP             = true,
+        hiddenVaultRows     = {},         -- {dungeons=true, raids=true, world=true}
+        vaultRowOrder       = {},         -- {"dungeons","raids","world"} empty=default
     },
     -- Panel Customizer
     panel = {
