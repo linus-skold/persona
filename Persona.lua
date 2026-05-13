@@ -52,8 +52,6 @@ Persona.defaults = {
         width               = 0,          -- 0 = use default
         height              = 0,
         backgroundAlpha     = 1.0,
-        savedAnimation      = 0,          -- 0 = Stand
-        customAnimId        = 0,
     },
 }
 

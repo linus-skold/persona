@@ -655,24 +655,6 @@ local function BuildPanel()
             if Persona.PanelCustomizer then Persona.PanelCustomizer:ApplyAlpha() end
         end)
 
-    y = y - 6
-    y = Header(p, "Character Pose", y)
-    y = Cycle(p, "On open, play", y,
-        {
-            {value=0,   label="Stand (default)"},
-            {value=67,  label="Kneel"},
-            {value=69,  label="Dance"},
-            {value=363, label="Sit"},
-            {value=1,   label="Combat Ready"},
-            {value=311, label="Spell Cast"},
-            {value=520, label="Heroic Pose"},
-        },
-        function() return Persona.db.panel.savedAnimation or 0 end,
-        function(v)
-            Persona.db.panel.savedAnimation = v
-            if Persona.PanelCustomizer then Persona.PanelCustomizer:ApplyAnimation() end
-        end)
-
     tabPanels["panel"].child:SetHeight(math.abs(y) + 20)
 end
 
