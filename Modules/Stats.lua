@@ -505,22 +505,22 @@ local function BuildCategories()
 
     NewRow(prim, "strength", "Strength", function()
         local v = UnitStat("player", 1)
-        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
+        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or ""
     end, PrimaryFilter(1))
 
     NewRow(prim, "agility", "Agility", function()
         local v = UnitStat("player", 2)
-        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
+        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or ""
     end, PrimaryFilter(2))
 
     NewRow(prim, "intellect", "Intellect", function()
         local v = UnitStat("player", 4)
-        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
+        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or ""
     end, PrimaryFilter(4))
 
     NewRow(prim, "stamina", "Stamina", function()
         local v = UnitStat("player", 3)
-        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
+        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or ""
     end)   -- always visible
 
     -- Defense
@@ -537,22 +537,22 @@ local function BuildCategories()
 
     NewRow(def, "dodge", "Dodge", function()
         local ok, v = pcall(GetDodgeChance)
-        return ok and v and string.format("%.2f%%", v) or "â"
+        return ok and v and string.format("%.2f%%", v) or "-"
     end, nil, RatingGetter(CR_DODGE))
 
     NewRow(def, "parry", "Parry", function()
         local ok, v = pcall(GetParryChance)
-        return ok and v and v > 0 and string.format("%.2f%%", v) or "â"
+        return ok and v and v > 0 and string.format("%.2f%%", v) or "-"
     end, {"tank", "physical"}, RatingGetter(CR_PARRY))
 
     NewRow(def, "block", "Block", function()
         local ok, v = pcall(GetBlockChance)
-        return ok and v and v > 0 and string.format("%.2f%%", v) or "â"
+        return ok and v and v > 0 and string.format("%.2f%%", v) or "-"
     end, "tank", RatingGetter(CR_BLOCK))
 
     NewRow(def, "stagger", "Stagger", function()
         local ok, v = pcall(C_PaperDollInfo.GetStaggerPercentage, "player")
-        return ok and v and v > 0 and string.format("%.2f%%", v) or "â"
+        return ok and v and v > 0 and string.format("%.2f%%", v) or "-"
     end, "tank")
 
     -- Offense
@@ -627,7 +627,7 @@ local function BuildCategories()
 
     NewRow(off, "haste", "Haste", function()
         local ok, v = pcall(GetHaste)
-        return ok and v and string.format("%.2f%%", v) or "â"
+        return ok and v and string.format("%.2f%%", v) or "-"
     end, nil, RatingGetter(CR_HASTE_MELEE))
 
     NewRow(off, "mastery", "Mastery", function()
@@ -651,12 +651,12 @@ local function BuildCategories()
 
     NewRow(misc, "leech", "Leech", function()
         local ok, v = pcall(GetLeech)
-        return ok and type(v) == "number" and string.format("%.2f%%", v) or "â"
+        return ok and type(v) == "number" and string.format("%.2f%%", v) or "-"
     end, nil, RatingGetter(CR_LIFESTEAL))
 
     NewRow(misc, "avoid", "Avoidance", function()
         local ok, v = pcall(GetAvoidance)
-        return ok and type(v) == "number" and string.format("%.2f%%", v) or "â"
+        return ok and type(v) == "number" and string.format("%.2f%%", v) or "-"
     end, nil, RatingGetter(CR_AVOIDANCE))
 
     -- ── Great Vault ───────────────────────────────────────────
