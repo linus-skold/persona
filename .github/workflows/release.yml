@@ -21,11 +21,11 @@ jobs:
 
       - name: Create zip
         run: |
+          mkdir -p $GITHUB_WORKSPACE/dist
           mkdir -p /tmp/Persona
           rsync -av --exclude='.git' --exclude='dist' --exclude='.github' . /tmp/Persona/
           cd /tmp
           zip -r "$GITHUB_WORKSPACE/dist/Persona-${{ steps.version.outputs.VERSION }}.zip" Persona/
-          mkdir -p $GITHUB_WORKSPACE/dist
       
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
