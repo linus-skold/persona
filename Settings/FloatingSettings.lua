@@ -546,6 +546,13 @@ local function BuildStats()
 
     -- Per-stat toggles  (mirrored from Stats.lua IDs)
     local GROUPS = {
+        { title = "Primary Stats",
+          stats = {
+            {id="strength",  label="Strength"},
+            {id="agility",   label="Agility"},
+            {id="intellect", label="Intellect"},
+            {id="stamina",   label="Stamina"},
+        }},
         { title = "Defense",
           stats = {
             {id="armor",      label="Armor"},
@@ -569,9 +576,9 @@ local function BuildStats()
         { title = "Misc",
           stats = {
             {id="speed",  label="Move Speed"},
+            {id="gcd",    label="Global Cooldown"},
             {id="leech",  label="Leech"},
             {id="avoid",  label="Avoidance"},
-            {id="dura",   label="Durability"},
         }},
     }
 

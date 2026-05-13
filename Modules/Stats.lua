@@ -25,6 +25,53 @@ local ROLE_SPEC = {
     [1000]="physical",
 }
 
+-- Spec → primary stat  (1=STR  2=AGI  4=INT)
+-- Every spec has exactly one primary stat in WoW.
+local SPEC_PRIMARY = {
+    -- Death Knight
+    [250]=1,[251]=1,[252]=1,
+    -- Demon Hunter
+    [577]=2,[581]=2,[1480]=4,
+    -- Druid  (Guardian/Feral = AGI; Balance/Resto = INT)
+    [102]=4,[103]=2,[104]=2,[105]=4,
+    -- Evoker
+    [1467]=4,[1468]=4,[1473]=4,
+    -- Hunter
+    [253]=2,[254]=2,[255]=2,
+    -- Mage
+    [62]=4,[63]=4,[64]=4,
+    -- Monk  (Brew/WW = AGI; MW = INT)
+    [268]=2,[269]=2,[270]=4,
+    -- Paladin  (Holy = INT; Prot/Ret = STR)
+    [65]=4,[66]=1,[70]=1,
+    -- Priest
+    [256]=4,[257]=4,[258]=4,
+    -- Rogue
+    [259]=2,[260]=2,[261]=2,
+    -- Shaman  (Ele/Resto = INT; Enh = AGI)
+    [262]=4,[263]=2,[264]=4,
+    -- Warlock
+    [265]=4,[266]=4,[267]=4,
+    -- Warrior
+    [71]=1,[72]=1,[73]=1,
+    -- Tinker placeholder
+    [1000]=2,
+}
+
+--- Returns the primary stat ID (1/2/4) for the current spec.
+local function GetSpecPrimary()
+    local spec = GetSpecialization and GetSpecialization()
+    if not spec then return 1 end
+    local ok, specId = pcall(GetSpecializationInfo, spec)
+    return (ok and SPEC_PRIMARY[specId]) or 1
+end
+
+--- Returns a filter function that passes only when the current spec's
+--- primary stat matches statId.  Passed as `roles` on primary stat rows.
+local function PrimaryFilter(statId)
+    return function() return GetSpecPrimary() == statId end
+end
+
 local function GetRole()
     local cfg = Persona.db.stats.layout
     if cfg ~= "auto" then return cfg end
@@ -57,13 +104,13 @@ local HEADER_H = 30   -- height of the fixed header bar
 
 -- ── Row visibility ────────────────────────────────────────────
 local function RowVisible(row, role)
-    -- User explicitly hid this stat in settings
     if row.id and Persona.db.stats.hiddenStats and
        Persona.db.stats.hiddenStats[row.id] then
         return false
     end
-    -- Role / spec filter (nil roles = always show)
     if not row.roles then return true end
+    -- Function filter: called at check time (used by primary stat filters)
+    if type(row.roles) == "function" then return row.roles() end
     if type(row.roles) == "string" then return row.roles == role end
     for _, r in ipairs(row.roles) do if r == role then return true end end
     return false
@@ -371,7 +418,34 @@ end
 -- ── Build categories ──────────────────────────────────────────
 local function BuildCategories()
 
-    -- ── Defense ──────────────────────────────────────────────
+    -- Primary Stats
+    local prim = NewCategory("Primary Stats")
+
+    -- Each primary stat uses PrimaryFilter(statId) so only the spec's
+    -- primary stat shows. Stamina is always shown (universal).
+    -- 1=STR  2=AGI  4=INT
+
+    NewRow(prim, "strength", "Strength", function()
+        local v = UnitStat("player", 1)
+        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
+    end, PrimaryFilter(1))
+
+    NewRow(prim, "agility", "Agility", function()
+        local v = UnitStat("player", 2)
+        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
+    end, PrimaryFilter(2))
+
+    NewRow(prim, "intellect", "Intellect", function()
+        local v = UnitStat("player", 4)
+        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
+    end, PrimaryFilter(4))
+
+    NewRow(prim, "stamina", "Stamina", function()
+        local v = UnitStat("player", 3)
+        return v and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
+    end)   -- always visible
+
+    -- Defense
     local def = NewCategory("Defense")
 
     NewRow(def, "armor", "Armor", function()
@@ -385,25 +459,25 @@ local function BuildCategories()
 
     NewRow(def, "dodge", "Dodge", function()
         local ok, v = pcall(GetDodgeChance)
-        return ok and v and string.format("%.2f%%", v) or "–"
+        return ok and v and string.format("%.2f%%", v) or "â"
     end)
 
     NewRow(def, "parry", "Parry", function()
         local ok, v = pcall(GetParryChance)
-        return ok and v and v > 0 and string.format("%.2f%%", v) or "–"
+        return ok and v and v > 0 and string.format("%.2f%%", v) or "â"
     end, {"tank", "physical"})
 
     NewRow(def, "block", "Block", function()
         local ok, v = pcall(GetBlockChance)
-        return ok and v and v > 0 and string.format("%.2f%%", v) or "–"
+        return ok and v and v > 0 and string.format("%.2f%%", v) or "â"
     end, "tank")
 
     NewRow(def, "stagger", "Stagger", function()
         local ok, v = pcall(C_PaperDollInfo.GetStaggerPercentage, "player")
-        return ok and v and v > 0 and string.format("%.2f%%", v) or "–"
+        return ok and v and v > 0 and string.format("%.2f%%", v) or "â"
     end, "tank")
 
-    -- ── Offense ───────────────────────────────────────────────
+    -- Offense
     local off = NewCategory("Offense")
 
     NewRow(off, "ap", "Attack Power", function()
@@ -415,7 +489,7 @@ local function BuildCategories()
     NewRow(off, "rap", "Ranged AP", function()
         local b, p, n = UnitRangedAttackPower("player")
         local v = (b or 0) + (p or 0) + (n or 0)
-        return v > 0 and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "–"
+        return v > 0 and (BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)) or "â"
     end, "physical")
 
     NewRow(off, "sp", "Spell Power", function()
@@ -429,58 +503,56 @@ local function BuildCategories()
 
     NewRow(off, "melee_crit", "Melee Crit", function()
         local ok, v = pcall(GetCritChance)
-        return ok and v and string.format("%.2f%%", v) or "–"
+        return ok and v and string.format("%.2f%%", v) or "â"
     end, {"tank", "physical"})
 
     NewRow(off, "ranged_crit", "Ranged Crit", function()
         local ok, v = pcall(GetRangedCritChance)
-        return ok and v and string.format("%.2f%%", v) or "–"
+        return ok and v and string.format("%.2f%%", v) or "â"
     end, "physical")
 
     NewRow(off, "spell_crit", "Spell Crit", function()
         local ok, v = pcall(GetSpellCritChance, 7)
-        return ok and v and string.format("%.2f%%", v) or "–"
+        return ok and v and string.format("%.2f%%", v) or "â"
     end, {"caster", "healer"})
 
     NewRow(off, "melee_speed", "Melee Speed", function()
         local ok, spd = pcall(UnitAttackSpeed, "player")
-        return ok and spd and string.format("%.2fs", spd) or "–"
+        return ok and spd and string.format("%.2fs", spd) or "â"
     end, {"tank", "physical"})
 
     NewRow(off, "haste", "Haste", function()
         local ok, v = pcall(GetHaste)
-        return ok and v and string.format("%.2f%%", v) or "–"
+        return ok and v and string.format("%.2f%%", v) or "â"
     end)
 
     NewRow(off, "mastery", "Mastery", function()
         local ok, v = pcall(GetMastery)
-        return ok and v and string.format("%.2f", v) or "–"
+        return ok and v and string.format("%.2f", v) or "â"
     end)
 
-    -- ── Misc ──────────────────────────────────────────────────
+    -- Misc
     local misc = NewCategory("Misc")
 
     NewRow(misc, "speed", "Move Speed", function()
         return string.format("%.0f%%", (GetUnitSpeed("player") or 0) / 7 * 100)
     end)
 
+    NewRow(misc, "gcd", "Global Cooldown", function()
+        local ok, h = pcall(GetHaste)
+        local haste = (ok and h) or 0
+        local gcd = math.max(0.75, 1.5 / (1 + haste / 100))
+        return string.format("%.2fs", gcd)
+    end)
+
     NewRow(misc, "leech", "Leech", function()
         local ok, v = pcall(GetLeech)
-        return ok and type(v) == "number" and string.format("%.2f%%", v) or "–"
+        return ok and type(v) == "number" and string.format("%.2f%%", v) or "â"
     end)
 
     NewRow(misc, "avoid", "Avoidance", function()
         local ok, v = pcall(GetAvoidance)
-        return ok and type(v) == "number" and string.format("%.2f%%", v) or "–"
-    end)
-
-    NewRow(misc, "dura", "Durability", function()
-        local tot, mx = 0, 0
-        for s = 0, 19 do
-            local c, m = GetInventoryItemDurability(s)
-            if c and m and m > 0 then tot = tot + c; mx = mx + m end
-        end
-        return mx > 0 and string.format("%.0f%%", tot / mx * 100) or "–"
+        return ok and type(v) == "number" and string.format("%.2f%%", v) or "â"
     end)
 
     -- ── Great Vault ───────────────────────────────────────────
