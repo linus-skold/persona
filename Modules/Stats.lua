@@ -169,9 +169,7 @@ local function NewCategory(title)
     cat.titleFS:SetTextColor(0.90, 0.82, 1.00)
 
     -- Separator line below category
-    cat.line = scrollChild:CreateTexture(nil, "ARTWORK")
-    cat.line:SetHeight(1)
-    cat.line:SetColorTexture(0.35, 0.20, 0.55, 0.70)
+    -- (no separator line; category headers serve as dividers)
 
     cat.header:SetScript("OnClick", function()
         cat.collapsed = not cat.collapsed
@@ -274,7 +272,7 @@ function Stats:Relayout()
 
         if not anyVisible then
             cat.header:Hide()
-            cat.line:Hide()
+            -- cat.line removed
             for _, row in ipairs(cat.rows) do row.frame:Hide() end
         else
             cat.header:Show()
@@ -297,11 +295,7 @@ function Stats:Relayout()
                 end
             end
 
-            cat.line:Show()
-            cat.line:ClearAllPoints()
-            cat.line:SetPoint("TOPLEFT",  scrollChild, "TOPLEFT",   4, yOff)
-            cat.line:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -4, yOff)
-            yOff = yOff - SEP_H - 1
+            -- no separator line
         end
     end
 
@@ -437,7 +431,7 @@ function Stats:UpdateBackground()
             math.min(1, r * 0.9 + 0.25),
             math.min(1, g * 0.8 + 0.20),
             math.min(1, b * 0.9 + 0.15))
-        cat.line:SetColorTexture(r*0.65, g*0.45, b*0.90, 0.70)
+        -- cat.line removed
     end
 
     -- Header bar border + vertical dividers
