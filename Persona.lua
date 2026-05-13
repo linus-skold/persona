@@ -15,6 +15,21 @@ Persona.defaults = {
         enchantDisplay      = "effect",   -- "effect" | "name"
         showMissingEnchant  = true,
         showDurability      = true,
+        upgradeLevel = {
+            enabled         = true,
+            position        = "outside",
+            insideAnchor    = "TOPRIGHT",
+            outsideAnchor   = "below",
+            fontSize        = 9,
+            customColors    = {
+                Myth        = { r=0.90, g=0.80, b=0.50 },
+                Hero        = { r=1.00, g=0.50, b=0.00 },
+                Champion    = { r=0.64, g=0.21, b=0.93 },
+                Veteran     = { r=0.00, g=0.44, b=0.87 },
+                Adventurer  = { r=0.12, g=1.00, b=0.00 },
+                Explorer    = { r=0.62, g=0.62, b=0.62 },
+            },
+        },
     },
     -- Stats Panel
     stats = {
@@ -108,23 +123,7 @@ function Persona:RefreshAll()
 end
 
 -- ============================================================
--- Slash commands   /persona
--- ============================================================
-SLASH_PERSONA1 = "/persona"
-SlashCmdList["PERSONA"] = function(msg)
-    msg = strtrim(msg or ""):lower()
-    if msg == "config" or msg == "settings" or msg == "" then
-        Settings.OpenToCategory(Persona.settingsCategoryID)
-    elseif msg == "reset" then
-        PersonaDB = MergeDefaults({}, Persona.defaults)
-        Persona.db = PersonaDB
-        ReloadUI()
-    else
-        print("|cffcc99ffPersona|r commands:")
-        print("  /persona          – " .. L["/persona config"])
-        print("  /persona reset    – " .. L["/persona reset"])
-    end
-end
+-- Slash command registered in Settings/FloatingSettings.lua
 
 -- ============================================================
 -- Public helpers used by multiple modules

@@ -170,47 +170,130 @@ local function Cycle(parent, labelText, y, options, getter, setter)
     lbl:SetText(labelText .. ":")
     lbl:SetTextColor(0.72, 0.72, 0.75)
 
-    local holder = CreateFrame("Frame", nil, parent)
-    holder:SetSize(200, 20)
-    holder:SetPoint("TOPLEFT", parent, "TOPLEFT", 150, y)
+    -- Main button
+    local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    btn:SetSize(200, 20)
+    btn:SetPoint("TOPLEFT", parent, "TOPLEFT", 150, y)
+    btn:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = false, edgeSize = 8,
+        insets = {left=3, right=3, top=3, bottom=3},
+    })
+    btn:SetBackdropColor(0.10, 0.08, 0.14, 0.95)
+    btn:SetBackdropBorderColor(0.40, 0.30, 0.60, 0.90)
 
-    local prev = CreateFrame("Button", nil, holder)
-    prev:SetSize(18, 18)
-    prev:SetPoint("LEFT")
-    prev:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
-    prev:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Down")
-    prev:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
+    local btnText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btnText:SetPoint("LEFT",  btn, "LEFT",  6, 0)
+    btnText:SetPoint("RIGHT", btn, "RIGHT", -18, 0)
+    btnText:SetJustifyH("LEFT")
+    btnText:SetWordWrap(false)
 
-    local next_ = CreateFrame("Button", nil, holder)
-    next_:SetSize(18, 18)
-    next_:SetPoint("RIGHT")
-    next_:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up")
-    next_:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Down")
-    next_:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
+    local arrow = btn:CreateTexture(nil, "OVERLAY")
+    arrow:SetSize(10, 6)
+    arrow:SetPoint("RIGHT", btn, "RIGHT", -5, -1)
+    arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+    arrow:SetVertexColor(0.80, 0.70, 1.00)
 
-    local valFS = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    valFS:SetPoint("LEFT",  prev,  "RIGHT", 4, 0)
-    valFS:SetPoint("RIGHT", next_, "LEFT",  -4, 0)
-    valFS:SetJustifyH("CENTER")
-
-    local function GetIdx()
+    local function Refresh()
         local cur = getter()
-        for i, opt in ipairs(options) do
-            if opt.value == cur then return i end
+        for _, opt in ipairs(options) do
+            if opt.value == cur then btnText:SetText(opt.label); return end
         end
-        return 1
+        btnText:SetText("-")
     end
-    local function Refresh() valFS:SetText(options[GetIdx()].label) end
-
-    prev:SetScript("OnClick", function()
-        local i = GetIdx(); i = i > 1 and i - 1 or #options
-        setter(options[i].value); Refresh()
-    end)
-    next_:SetScript("OnClick", function()
-        local i = GetIdx(); i = i < #options and i + 1 or 1
-        setter(options[i].value); Refresh()
-    end)
     Refresh()
+
+    -- Drop list (parented to UIParent so it floats above everything)
+    local listFrame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    listFrame:SetFrameStrata("TOOLTIP")
+    listFrame:SetFrameLevel(200)
+    listFrame:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = false, edgeSize = 8,
+        insets = {left=4, right=4, top=4, bottom=4},
+    })
+    listFrame:SetBackdropColor(0.06, 0.05, 0.09, 0.98)
+    listFrame:SetBackdropBorderColor(0.45, 0.30, 0.70, 1.0)
+    listFrame:Hide()
+
+    local ITEM_H = 18
+    local listItems = {}
+    for i, opt in ipairs(options) do
+        local item = CreateFrame("Button", nil, listFrame)
+        item:SetHeight(ITEM_H)
+        item:SetPoint("TOPLEFT",  listFrame, "TOPLEFT",   5, -(4 + (i-1)*ITEM_H))
+        item:SetPoint("TOPRIGHT", listFrame, "TOPRIGHT",  -5, -(4 + (i-1)*ITEM_H))
+
+        local hl = item:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(0.25, 0.18, 0.40, 0.65)
+
+        local dot = item:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        dot:SetPoint("LEFT", item, "LEFT", 3, 0)
+        dot:SetWidth(12)
+        dot:SetJustifyH("LEFT")
+        dot:SetTextColor(0.80, 0.70, 1.00)
+
+        local txt = item:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        txt:SetPoint("LEFT",  item, "LEFT",  16, 0)
+        txt:SetPoint("RIGHT", item, "RIGHT", -4, 0)
+        txt:SetJustifyH("LEFT")
+        txt:SetText(opt.label)
+
+        item.dot      = dot
+        item.optValue = opt.value
+        table.insert(listItems, item)
+
+        local capturedOpt = opt
+        item:SetScript("OnClick", function()
+            setter(capturedOpt.value)
+            Refresh()
+            listFrame:Hide()
+        end)
+    end
+
+    listFrame:SetWidth(btn:GetWidth())
+    listFrame:SetHeight(4 + #options * ITEM_H + 4)
+
+    local function UpdateDots()
+        local cur = getter()
+        for _, li in ipairs(listItems) do
+            li.dot:SetText(li.optValue == cur and "|cffcc99ff●|r" or "")
+        end
+    end
+
+    -- Click-catcher behind the list to close it
+    local catcher = CreateFrame("Frame", nil, UIParent)
+    catcher:SetAllPoints(UIParent)
+    catcher:SetFrameStrata("DIALOG")
+    catcher:SetFrameLevel(199)
+    catcher:EnableMouse(true)
+    catcher:Hide()
+    catcher:SetScript("OnMouseDown", function()
+        listFrame:Hide(); catcher:Hide()
+    end)
+
+    btn:SetScript("OnClick", function()
+        if listFrame:IsShown() then
+            listFrame:Hide(); catcher:Hide()
+        else
+            listFrame:ClearAllPoints()
+            -- Open upward if too close to bottom of screen
+            local _, by = btn:GetCenter()
+            local listH = listFrame:GetHeight()
+            if by and by - listH < 60 then
+                listFrame:SetPoint("BOTTOMLEFT", btn, "TOPLEFT",   0,  2)
+            else
+                listFrame:SetPoint("TOPLEFT",    btn, "BOTTOMLEFT", 0, -2)
+            end
+            UpdateDots()
+            listFrame:Show()
+            catcher:Show()
+        end
+    end)
+
     return y - ROW_H - 2
 end
 
@@ -239,6 +322,9 @@ local function Slider(parent, labelText, y, minV, maxV, step, getter, setter)
 end
 
 -- ── Tab builders ──────────────────────────────────────────────
+
+-- Shared callback so the Position cycle can refresh the upgrade sub-options.
+local _upgradePosRefresh = nil
 
 local function BuildSlots()
     local p = tabPanels["slots"].child
@@ -275,6 +361,160 @@ local function BuildSlots()
     _, y = Check(p, "Show Durability bar", y,
         function() return Persona.db.itemSlots.showDurability end,
         function(v) Persona.db.itemSlots.showDurability = v; Persona:RefreshAll() end)
+
+    -- ── Upgrade Level ─────────────────────────────────────────
+    y = y - 6
+    y = Header(p, "Upgrade Level", y)
+    _, y = Check(p, "Show upgrade level (e.g. 3/8)", y,
+        function() return Persona.db.itemSlots.upgradeLevel.enabled end,
+        function(v) Persona.db.itemSlots.upgradeLevel.enabled = v; Persona:RefreshAll() end)
+
+    y = Slider(p, "Text size", y, 6, 18, 1,
+        function() return Persona.db.itemSlots.upgradeLevel.fontSize or 9 end,
+        function(v)
+            Persona.db.itemSlots.upgradeLevel.fontSize = math.floor(v)
+            Persona:RefreshAll()
+        end)
+
+    -- Upgrade has its own Inside/Outside setting, independent of ilvl.
+    y = Cycle(p, "Placement", y,
+        { {value="outside", label="Outside slot"}, {value="inside", label="Inside slot"} },
+        function() return Persona.db.itemSlots.upgradeLevel.position or "outside" end,
+        function(v)
+            Persona.db.itemSlots.upgradeLevel.position = v
+            Persona:RefreshAll()
+            if _upgradePosRefresh then _upgradePosRefresh() end
+        end)
+
+    -- Two sub-frames: only one shown based on upgradeLevel.position.
+    local posRowH = ROW_H + 4
+
+    local insideHolder = CreateFrame("Frame", nil, p)
+    insideHolder:SetPoint("TOPLEFT",  p, "TOPLEFT",  0, y)
+    insideHolder:SetPoint("TOPRIGHT", p, "TOPRIGHT", 0, y)
+    insideHolder:SetHeight(posRowH)
+    Cycle(insideHolder, "Position", -2,
+        {
+            {value="TOPLEFT",     label="Top Left"},
+            {value="TOP",         label="Top"},
+            {value="TOPRIGHT",    label="Top Right"},
+            {value="LEFT",        label="Left"},
+            {value="CENTER",      label="Center"},
+            {value="RIGHT",       label="Right"},
+            {value="BOTTOMLEFT",  label="Bottom Left"},
+            {value="BOTTOM",      label="Bottom"},
+            {value="BOTTOMRIGHT", label="Bottom Right"},
+        },
+        function() return Persona.db.itemSlots.upgradeLevel.insideAnchor or "TOPRIGHT" end,
+        function(v) Persona.db.itemSlots.upgradeLevel.insideAnchor = v; Persona:RefreshAll() end)
+
+    local outsideHolder = CreateFrame("Frame", nil, p)
+    outsideHolder:SetPoint("TOPLEFT",  p, "TOPLEFT",  0, y)
+    outsideHolder:SetPoint("TOPRIGHT", p, "TOPRIGHT", 0, y)
+    outsideHolder:SetHeight(posRowH)
+    Cycle(outsideHolder, "Position", -2,
+        {
+            {value="below", label="Below ilvl"},
+            {value="above", label="Above ilvl  (moves down if enchant present)"},
+            {value="right", label="Right  (clears gems)"},
+            {value="left",  label="Left   (clears gems)"},
+        },
+        function() return Persona.db.itemSlots.upgradeLevel.outsideAnchor or "below" end,
+        function(v) Persona.db.itemSlots.upgradeLevel.outsideAnchor = v; Persona:RefreshAll() end)
+
+    _upgradePosRefresh = function()
+        local isInside = Persona.db.itemSlots.upgradeLevel.position == "inside"
+        insideHolder:SetShown(isInside)
+        outsideHolder:SetShown(not isInside)
+    end
+    _upgradePosRefresh()
+
+    y = y - posRowH
+
+    -- ── Upgrade Colours ───────────────────────────────────────
+    y = y - 6
+    y = Header(p, "Upgrade Colours", y)
+
+    local DEFAULTS = {
+        Myth       = { r=0.90, g=0.80, b=0.50 },
+        Hero       = { r=1.00, g=0.50, b=0.00 },
+        Champion   = { r=0.64, g=0.21, b=0.93 },
+        Veteran    = { r=0.00, g=0.44, b=0.87 },
+        Adventurer = { r=0.12, g=1.00, b=0.00 },
+        Explorer   = { r=0.62, g=0.62, b=0.62 },
+    }
+
+    -- Store swatch updaters so reset can refresh them all immediately
+    local swatchUpdaters = {}
+
+    local resetBtn = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    resetBtn:SetSize(120, 20)
+    resetBtn:SetPoint("TOPLEFT", p, "TOPLEFT", 4, y)
+    resetBtn:SetText("Reset to default")
+    resetBtn:SetScript("OnClick", function()
+        local cc = Persona.db.itemSlots.upgradeLevel.customColors
+        for name, col in pairs(DEFAULTS) do
+            cc[name] = { r=col.r, g=col.g, b=col.b }
+        end
+        -- Refresh every swatch immediately
+        for _, fn in ipairs(swatchUpdaters) do fn() end
+        Persona:RefreshAll()
+    end)
+    y = y - 26
+
+    local TRACKS = { "Myth", "Hero", "Champion", "Veteran", "Adventurer", "Explorer" }
+    for _, name in ipairs(TRACKS) do
+        local lbl = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        lbl:SetPoint("TOPLEFT", p, "TOPLEFT", 8, y)
+        lbl:SetText(name .. ":")
+        lbl:SetTextColor(0.72, 0.72, 0.75)
+        lbl:SetWidth(80)
+
+        local swatch = CreateFrame("Button", nil, p, "BackdropTemplate")
+        swatch:SetSize(60, 16)
+        swatch:SetPoint("TOPLEFT", p, "TOPLEFT", 94, y)
+        swatch:SetBackdrop({
+            bgFile   = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            edgeSize = 8, insets = {left=2, right=2, top=2, bottom=2}
+        })
+
+        local capturedName = name
+        local function UpdateSwatch()
+            local cc = Persona.db.itemSlots.upgradeLevel.customColors[capturedName]
+            if cc then swatch:SetBackdropColor(cc.r, cc.g, cc.b, 1) end
+        end
+        UpdateSwatch()
+        table.insert(swatchUpdaters, UpdateSwatch)  -- register for reset
+
+        swatch:SetScript("OnClick", function()
+            local cc = Persona.db.itemSlots.upgradeLevel.customColors[capturedName]
+            local prev = { r=cc.r, g=cc.g, b=cc.b }
+            ColorPickerFrame:SetupColorPickerAndShow({
+                r = cc.r, g = cc.g, b = cc.b,
+                hasOpacity = false,
+                swatchFunc = function()
+                    local r, g, b = ColorPickerFrame:GetColorRGB()
+                    Persona.db.itemSlots.upgradeLevel.customColors[capturedName] = {r=r, g=g, b=b}
+                    UpdateSwatch()
+                    Persona:RefreshAll()
+                end,
+                cancelFunc = function()
+                    Persona.db.itemSlots.upgradeLevel.customColors[capturedName] = prev
+                    UpdateSwatch()
+                    Persona:RefreshAll()
+                end,
+            })
+        end)
+        swatch:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Click to pick colour for " .. capturedName, 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        swatch:SetScript("OnLeave", GameTooltip_Hide)
+
+        y = y - 22
+    end
 
     tabPanels["slots"].child:SetHeight(math.abs(y) + 20)
 end

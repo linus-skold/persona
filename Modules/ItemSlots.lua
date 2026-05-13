@@ -183,34 +183,84 @@ local ENCHANT_SHORT = {
 
 local enchantPattern   = ENCHANTED_TOOLTIP_LINE:gsub("%%s", "(.*)")
 
--- ── Upgrade track colours ────────────────────────────────────
--- Maps upgrade track name → WoW item quality colour (hex string).
--- Myth uses Artifact gold; each lower track steps down one quality tier.
+-- Upgrade track default colours (r,g,b 0-1 range)
 local UPGRADE_TRACKS = {
-    { name = "Myth",       hex = "e6cc80" },  -- Artifact / Heirloom gold
-    { name = "Hero",       hex = "ff8000" },  -- Legendary orange
-    { name = "Champion",   hex = "a335ee" },  -- Epic purple
-    { name = "Veteran",    hex = "0070dd" },  -- Rare blue
-    { name = "Adventurer", hex = "1eff00" },  -- Uncommon green
-    { name = "Explorer",   hex = "9d9d9d" },  -- Common grey
+    { name = "Myth",       r=0.90, g=0.80, b=0.50 },  -- Artifact gold
+    { name = "Hero",       r=1.00, g=0.50, b=0.00 },  -- Legendary orange
+    { name = "Champion",   r=0.64, g=0.21, b=0.93 },  -- Epic purple
+    { name = "Veteran",    r=0.00, g=0.44, b=0.87 },  -- Rare blue
+    { name = "Adventurer", r=0.12, g=1.00, b=0.00 },  -- Uncommon green
+    { name = "Explorer",   r=0.62, g=0.62, b=0.62 },  -- Common grey
+}
+local UPGRADE_TRACK_BY_NAME = {}
+for _, t in ipairs(UPGRADE_TRACKS) do UPGRADE_TRACK_BY_NAME[t.name] = t end
+
+-- Pixel nudge for each inside-anchor position
+local INSIDE_OFFSETS = {
+    TOPLEFT     = { 1, -1 }, TOP    = { 0, -1 }, TOPRIGHT     = {-1, -1 },
+    LEFT        = { 2,  0 }, CENTER = { 0,  0 }, RIGHT        = {-2,  0 },
+    BOTTOMLEFT  = { 1,  1 }, BOTTOM = { 0,  2 }, BOTTOMRIGHT  = {-1,  1 },
 }
 
---- Returns a coloured "X/Y" upgrade level string, or nil if not found.
-local function GetUpgradeText(unit, slot)
+-- Parse tooltip for track name, cur, max. Returns nil if not found.
+local function GetRawUpgradeInfo(unit, slot)
     local ok, data = pcall(C_TooltipInfo.GetInventoryItem, unit, slot)
     if not ok or not data then return nil end
-
     for _, line in ipairs(data.lines) do
-        -- Strip colour escape codes so we match plain text
-        local text = (line.leftText or ""):gsub("|c%x%x%x%x%x%x%x%x(.-)%|r", "%1"):gsub("|[cCrR].-|", "")
+        local text = (line.leftText or ""):gsub("|c%x%x%x%x%x%x%x%x(.-)%|r", "%1")
         for _, track in ipairs(UPGRADE_TRACKS) do
             local cur, max = text:match(track.name .. "%s+(%d+)/(%d+)")
-            if cur then
-                return string.format("|cff%s%s/%s|r", track.hex, cur, max)
-            end
+            if cur then return track.name, tonumber(cur), tonumber(max) end
         end
     end
     return nil
+end
+
+-- Build coloured "X/Y" string using current config.
+local function BuildUpgradeText(trackName, cur, max)
+    local upgCfg = Persona.db.itemSlots.upgradeLevel
+    local r, g, b = 1, 1, 1
+    local cc = upgCfg and upgCfg.customColors and upgCfg.customColors[trackName]
+    if cc then
+        r, g, b = cc.r, cc.g, cc.b
+    else
+        local def = UPGRADE_TRACK_BY_NAME[trackName]
+        if def then r, g, b = def.r, def.g, def.b end
+    end
+    return string.format("|cff%02x%02x%02x%d/%d|r", r*255, g*255, b*255, cur, max)
+end
+
+-- Anchor upgradeFS for OUTSIDE ilvl mode.
+-- side: "left"|"right"|"center"  hasEnchant: bool
+local function AnchorUpgradeFSOutside(f, side, hasEnchant)
+    local upgCfg = Persona.db.itemSlots.upgradeLevel
+    local anchor = (upgCfg and upgCfg.outsideAnchor) or "below"
+    if anchor == "above" and hasEnchant then anchor = "below" end
+
+    local function LastGem()
+        for i = 4, 1, -1 do if f.sockets[i]:IsShown() then return f.sockets[i] end end
+    end
+    local function FirstGem()
+        for i = 1, 4 do if f.sockets[i]:IsShown() then return f.sockets[i] end end
+    end
+
+    f.upgradeFS:ClearAllPoints()
+    local ref = f.ilvlOutside
+    if anchor == "below" then
+        f.upgradeFS:SetPoint("TOP",    ref, "BOTTOM", 0, -2)
+        f.upgradeFS:SetJustifyH("CENTER")
+    elseif anchor == "above" then
+        f.upgradeFS:SetPoint("BOTTOM", ref, "TOP", 0, 2)
+        f.upgradeFS:SetJustifyH("CENTER")
+    elseif anchor == "right" then
+        local gem = (side == "left") and LastGem() or nil
+        f.upgradeFS:SetPoint("LEFT", gem or ref, "RIGHT", 4, 0)
+        f.upgradeFS:SetJustifyH("LEFT")
+    elseif anchor == "left" then
+        local gem = (side == "right") and FirstGem() or nil
+        f.upgradeFS:SetPoint("RIGHT", gem or ref, "LEFT", -4, 0)
+        f.upgradeFS:SetJustifyH("RIGHT")
+    end
 end
 local atlasPattern     = "(.*)%s*|A:(.*):20:20|a"
 local coloredPattern   = "|cn(.*):(.*)|r"
@@ -471,10 +521,25 @@ local function UpdateButtonFull(button, unit)
     end
 
     -- ── Upgrade level badge ──────────────────────────────────
-    if link then
-        local upgradeText = GetUpgradeText(unit, slot)
-        if upgradeText then
-            f.upgradeFS:SetText(upgradeText)
+    local upgCfg = cfg.upgradeLevel
+    if upgCfg and upgCfg.enabled and link then
+        local trackName, cur, max = GetRawUpgradeInfo(unit, slot)
+        if trackName then
+            local fontSize = upgCfg.fontSize or 9
+            f.upgradeFS:SetFont(f.upgradeFS:GetFont(), fontSize, "OUTLINE")
+            f.upgradeFS:SetText(BuildUpgradeText(trackName, cur, max))
+
+            local upgradeInside = upgCfg.position == "inside"
+            if upgradeInside then
+                local anchor = upgCfg.insideAnchor or "TOPRIGHT"
+                local off = INSIDE_OFFSETS[anchor] or {-1, -1}
+                f.upgradeFS:ClearAllPoints()
+                f.upgradeFS:SetPoint(anchor, button, anchor, off[1], off[2])
+            else
+                local side = BUTTON_SIDE[slot] or "left"
+                local hasEnchant = f.enchant:GetText() and f.enchant:GetText() ~= ""
+                AnchorUpgradeFSOutside(f, side, hasEnchant)
+            end
             f.upgradeFS:Show()
         else
             f.upgradeFS:Hide()
