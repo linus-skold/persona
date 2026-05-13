@@ -22,10 +22,12 @@ jobs:
       - name: Create zip
         run: |
           mkdir -p dist
-          zip -r "dist/Persona-${{ steps.version.outputs.VERSION }}.zip" . \
-            --exclude "*.git*" \
-            --exclude "dist/*" \
-            --exclude ".github/*"
+          cd ..
+          cp -r persona Persona
+          zip -r "persona/dist/Persona-${{ steps.version.outputs.VERSION }}.zip" Persona \
+            --exclude "Persona/.git*" \
+            --exclude "Persona/dist/*" \
+            --exclude "Persona/.github/*"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
